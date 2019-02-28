@@ -5,6 +5,7 @@ import TelegramCore
 import Postbox
 import SwiftSignalKit
 import MtProtoKitDynamic
+import CloudVeilSecurityManager
 
 public struct ParsedSecureIdUrl {
     public let peerId: PeerId
@@ -621,6 +622,12 @@ public func openExternalUrl(account: Account, context: OpenURLContext = .generic
             } else {
                 if #available(iOSApplicationExtension 9.0, *) {
                     if let window = navigationController?.view.window {
+                        //CloudVeil start
+                        if MainController.SecurityStaticSettings.disableInAppBrowser {
+                            applicationContext.applicationBindings.openUrl(parsedUrl.absoluteString)
+                            return
+                        }
+                        //CloudVeil end
                         let controller = SFSafariViewController(url: parsedUrl)
                         if #available(iOSApplicationExtension 10.0, *) {
                             controller.preferredBarTintColor = presentationData.theme.rootController.navigationBar.backgroundColor

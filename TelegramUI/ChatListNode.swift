@@ -4,6 +4,7 @@ import AsyncDisplayKit
 import SwiftSignalKit
 import TelegramCore
 import Postbox
+import CloudVeilSecurityManager
 
 public struct ChatListNodePeersFilter: OptionSet {
     public var rawValue: Int32
@@ -475,6 +476,11 @@ final class ChatListNode: ListView {
         let chatListNodeViewTransition = combineLatest(savedMessagesPeer, chatListViewUpdate, self.statePromise.get()) |> mapToQueue { (savedMessagesPeer, update, state) -> Signal<ChatListNodeListViewTransition, NoError> in
             
             let (rawEntries, isLoading) = chatListNodeEntriesForView(update.view, state: state, savedMessagesPeer: savedMessagesPeer, mode: mode)
+            
+            //CloudVeil start
+            self.cloudVeilCheckDialogsOnServer(entries: rawEntries)
+            //CloudVeil end
+            
             let entries = rawEntries.filter { entry in
                 switch entry {
                 case let .PeerEntry(_, _, _, _, _, _, peer, _, _, _, _, _, _):
@@ -482,6 +488,7 @@ final class ChatListNode: ListView {
                         case .chatList:
                             return true
                         case let .peers(filter):
+                            
                             guard !filter.contains(.excludeSavedMessages) || peer.peerId != currentPeerId else { return false }
                             guard !filter.contains(.excludeSecretChats) || peer.peerId.namespace != Namespaces.Peer.SecretChat else { return false }
                             guard !filter.contains(.onlyPrivateChats) || peer.peerId.namespace == Namespaces.Peer.CloudUser else { return false }
@@ -497,6 +504,7 @@ final class ChatListNode: ListView {
                                     return false
                                 }
                             }
+                            
                             
                             if filter.contains(.onlyChannels) {
                                 if let peer = peer.chatMainPeer as? TelegramChannel, case .broadcast = peer.info {
@@ -910,8 +918,63 @@ final class ChatListNode: ListView {
         self.chatListDisposable.dispose()
         self.activityStatusesDisposable?.dispose()
     }
+
+    //CloudVeil start
+    func cloudVeilCheckDialogsOnServer(entries: [ChatListNodeEntry]) {
+        let peerView = account.viewTracker.peerView(account.peerId)
+        peerView.start(next: { peerView in
+            if let peer = peerViewMainPeer(peerView) as? TelegramUser {
+                TGUserController.shared.set(userID: NSInteger(peer.id.toInt64()))
+                TGUserController.shared.set(userName: (peer.username ?? "") as NSString)
+                TGUserController.shared.set(userPhoneNumber: (peer.phone ?? "") as NSString)
+                //collect peers
+                var bots = [TGRow]()
+                var groups = [TGRow]()
+                var channels = [TGRow]()
+                
+                for entry in entries {
+                    if case let .PeerEntry(_, _, _, _, _, _, peer, _, _, _, _, _, _) = entry {
+                        let title = peer.chatMainPeer?.displayTitle ?? "empty"
+                        
+                        var row = TGRow()
+                        row.objectID = NSInteger(peer.peerId.id)
+                        let groupId = -peer.peerId.id
+                        row.title = title as NSString
+                        
+                        Logger.shared.log("CloudVeil sync", "Syncing " + title + " id" + String(row.objectID))
+                        
+                        var isGroup: Bool = false
+                        if let peer = peer.chatMainPeer as? TelegramChannel, case .group = peer.info {
+                            isGroup = true
+                            
+                            row.userName = (peer.username ?? "") as NSString
+                        } else if peer.peerId.namespace == Namespaces.Peer.CloudGroup {
+                            isGroup = true
+                        }
+                        if isGroup {
+                            row.objectID = NSInteger(groupId)
+                            groups.append(row)
+                        } else if let peer = peer.chatMainPeer as? TelegramChannel, case .broadcast = peer.info {
+                            row.objectID = NSInteger(groupId)
+                            row.userName = (peer.username ?? "") as NSString
+                            channels.append(row)
+                        } else if let user = peer.chatMainPeer as? TelegramUser, let botInfo = user.botInfo {
+                            row.userName = (user.username ?? "") as NSString
+                            bots.append(row)
+                        }
+                    }
+                }
+                    
+                let json = MainController.shared.getSettings(groups: groups, bots: bots, channels: channels)
+                Logger.shared.log("CloudVeil sync", json)
+                print(json)
+            }
+        }
+        )
+    }
+    //CloudVeil end
     
-    func updateThemeAndStrings(theme: PresentationTheme, strings: PresentationStrings, dateTimeFormat: PresentationDateTimeFormat, nameSortOrder: PresentationPersonNameOrder, nameDisplayOrder: PresentationPersonNameOrder, disableAnimations: Bool) {
+        func updateThemeAndStrings(theme: PresentationTheme, strings: PresentationStrings, dateTimeFormat: PresentationDateTimeFormat, nameSortOrder: PresentationPersonNameOrder, nameDisplayOrder: PresentationPersonNameOrder, disableAnimations: Bool) {
         if theme !== self.currentState.presentationData.theme || strings !== self.currentState.presentationData.strings || dateTimeFormat != self.currentState.presentationData.dateTimeFormat || disableAnimations != self.currentState.presentationData.disableAnimations {
             self.theme = theme
             if self.keepTopItemOverscrollBackground != nil {

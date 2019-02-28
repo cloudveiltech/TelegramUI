@@ -4,6 +4,7 @@ import Display
 import AsyncDisplayKit
 import SwiftSignalKit
 import TelegramCore
+import CloudVeilSecurityManager
 
 enum WebsiteType {
     case generic
@@ -141,6 +142,14 @@ final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContentNode {
                         return
                     }
                 }
+                
+                //CloudVeil start
+                let isYoutubeForbidden = self?.isYoutubeMessage(message: item.message) ?? false && MainController.SecurityStaticSettings.disableYoutubeVideoEmbedding
+                if isYoutubeForbidden  {
+                    return
+                }
+                //CloudVeil end
+                
                 let _ = item.controllerInteraction.openMessage(item.message, stream ? .stream : .default)
             }
         }
@@ -161,6 +170,26 @@ final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContentNode {
             }
         }
     }
+    
+    //CloudVeil start
+    private func isYoutubeMessage(message: Message) -> Bool {
+        for media in message.media {
+            if let webpage = media as? TelegramMediaWebpage {
+                switch webpage.content {
+                case let .Loaded(content):
+                    if let embedUrl = content.embedUrl, !embedUrl.isEmpty {
+                        if let data = extractYoutubeVideoIdAndTimestamp(url: embedUrl) {
+                            return true
+                        }
+                    }
+                case .Pending:
+                    break
+                }
+            }
+        }
+        return false
+    }
+    //CloudVeil end
     
     required init?(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")

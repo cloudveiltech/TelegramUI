@@ -8,6 +8,8 @@ import TelegramCore
 import SafariServices
 import MobileCoreServices
 import LegacyComponents
+import CloudVeilSecurityManager
+import MessageUI
 
 public enum ChatControllerPeekActions {
     case standard
@@ -83,7 +85,8 @@ private func isTopmostChatController(_ controller: ChatController) -> Bool {
 
 let ChatControllerCount = Atomic<Int32>(value: 0)
 
-public final class ChatController: TelegramController, KeyShortcutResponder, GalleryHiddenMediaTarget, UIDropInteractionDelegate {
+//CloudVeil
+public final class ChatController: TelegramController, KeyShortcutResponder, GalleryHiddenMediaTarget, UIDropInteractionDelegate, MFMailComposeViewControllerDelegate {
     private var validLayout: ContainerViewLayout?
     
     weak var parentController: ViewController?
@@ -1580,6 +1583,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             })
         }
     }
+    
     
     required public init(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
@@ -3309,6 +3313,12 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                 }
             }
         }
+        
+        //CloudVeil start
+        if case let .peer(peerId) = self.chatLocation {
+            checkPeerIsAllowed(peerId: peerId)
+        }
+        //CloudVeil end
     }
     
     override public func viewWillDisappear(_ animated: Bool) {
@@ -3645,7 +3655,6 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             self.navigationItem.setRightBarButton(nil, animated: transition.isAnimated)
             self.rightNavigationButton = nil
         }
-        
         if let controllerInteraction = self.controllerInteraction {
             if updatedChatPresentationInterfaceState.interfaceState.selectionState != controllerInteraction.selectionState {
                 controllerInteraction.selectionState = updatedChatPresentationInterfaceState.interfaceState.selectionState
@@ -4243,6 +4252,114 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             }
         }))
     }
+    
+    //CloudVeil start
+    private func checkPeerIsAllowed(peerId: PeerId) {
+        let peerView = account.viewTracker.peerView(peerId)
+        
+        peerView.start(next: { peerView in
+            var isDialogAllowed = true
+            let peerView = peerViewMainPeer(peerView)
+            if let peer = peerView as? TelegramChannel, case .group = peer.info {
+               isDialogAllowed = MainController.shared.isGroupAvailable(groupID: NSInteger(-peerId.id))
+            } else if peerId.namespace == Namespaces.Peer.CloudGroup {
+                isDialogAllowed = MainController.shared.isGroupAvailable(groupID: NSInteger(-peerId.id))
+            } else if let peer = peerView as? TelegramChannel, case .broadcast = peer.info {
+                isDialogAllowed = MainController.shared.isChannelAvailable(channelID: NSInteger(-peerId.id))
+            } else if let user = peerView as? TelegramUser, let botInfo = user.botInfo {
+                isDialogAllowed = MainController.shared.isBotAvailable(botID: NSInteger(peerId.id))
+            }
+            
+            if !isDialogAllowed {
+                 DispatchQueue.main.async {
+                    self.showBlockedPopup(peerView: peerView!)
+                }                    
+            }
+        })
+    }
+    
+    func showBlockedPopup(peerView: Peer) {
+        var type = ""
+        if let peer = peerView as? TelegramChannel, case .group = peer.info {
+            type = "group"
+        } else if peerView.id.namespace == Namespaces.Peer.CloudGroup {
+            type = "group"
+        } else if let peer = peerView as? TelegramChannel, case .broadcast = peer.info {
+           type = "channel"
+        } else if let user = peerView as? TelegramUser, let _ = user.botInfo {
+             type = "bot"
+        }
+        
+        let message = "This \(type) is blocked by our server policy. Please contact CloudVeil Support at support@cloudveil.org to request it be unblocked."
+    
+        let controller = standardTextAlertController(theme: AlertControllerTheme(presentationTheme: self.presentationData.theme), title: "CloudVeil", text: message,
+                                                     actions: [TextAlertAction(type: .defaultAction, title: "Cancel", action: {
+                                                     //   self.dismissCurrent()
+                                                     }),
+                                                     TextAlertAction(type: .defaultAction, title: "Contact", action: {
+                                                                self.showMailDialog(peerView: peerView)
+                                                    })
+            ])
+        
+        self.present(controller, in: .window(.root))
+    }
+    
+    private func showMailDialog(peerView: Peer) {
+        if !MFMailComposeViewController.canSendMail() {
+           // self.dismissCurrent()
+            return
+        }
+        
+        var title = peerView.displayTitle
+        var userName = ""
+        var type = ""
+        var conversationId = peerView.id.id
+        if let peer = peerView as? TelegramChannel, case .group = peer.info {
+            type = "group"
+            title = peer.title
+            userName = peer.username ?? ""
+            conversationId = -conversationId
+        } else if peerView.id.namespace == Namespaces.Peer.CloudGroup {
+            type = "group"
+            conversationId = -conversationId
+        } else if let peer = peerView as? TelegramChannel, case .broadcast = peer.info {
+            type = "channel"
+            title = peer.title
+            userName = peer.username ?? ""
+            conversationId = -conversationId
+        } else if let user = peerView as? TelegramUser, let _ = user.botInfo {
+            type = "bot"
+            userName = user.username ?? ""
+        }
+        
+        let userId = TGUserController.shared.getUserID()
+        let message = "User ID: \(userId)\nConversation ID: \(conversationId)\nUsername: \(userName)\nType: \(type)\nTitle: \(title)"
+        let mail = MFMailComposeViewController()
+        mail.setSubject("Unblock Request for \(type): \(title)")
+        mail.setMessageBody(message, isHTML: false)
+        mail.setToRecipients(["support@cloudveil.org"])
+        
+        mail.mailComposeDelegate = self
+        self.present(mail, animated: true)
+        
+       // dismissCurrent()
+    }
+    
+    public func mailComposeController(_ controller: MFMailComposeViewController, didFinishWith result: MFMailComposeResult, error: Error?) {
+        // Dismiss the mail compose view controller.
+        controller.dismiss(animated: true, completion: {
+            self.dismissCurrent()
+        })
+    }
+    
+    private func dismissCurrent() {
+        if self.attemptNavigation({
+            self.navigationController?.popViewController(animated: false)
+        }) {
+            self.navigationController?.popViewController(animated: false)
+        }
+    }
+    //CloudVeil end
     
     private func presentPollCreation() {
         if case let .peer(peerId) = self.chatLocation {
@@ -4996,7 +5113,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                                 strongController.dismiss()
                             }
                         }))
-                        
+                       
                         if let parentController = strongSelf.parentController {
                             (parentController.navigationController as? NavigationController)?.replaceTopController(ChatController(account: strongSelf.account, chatLocation: .peer(peerId)), animated: false, ready: ready)
                         } else {
@@ -5489,6 +5606,12 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                     if let parsedUrl = URL(string: string) {
                         if parsedUrl.scheme == "http" || parsedUrl.scheme == "https" {
                             if #available(iOSApplicationExtension 9.0, *) {
+                                //CloudVeil start
+                                if MainController.SecurityStaticSettings.disableInAppBrowser {
+                                    return nil
+                                }
+                                //CloudVeil end
+                                
                                 let controller = SFSafariViewController(url: parsedUrl)
                                 if #available(iOSApplicationExtension 10.0, *) {
                                     controller.preferredBarTintColor = self.presentationData.theme.rootController.navigationBar.backgroundColor

@@ -135,7 +135,9 @@ static void TGDispatchOnMainThread(dispatch_block_t block) {
         NSBundle *bundle = [NSBundle bundleWithPath:[[NSBundle mainBundle] pathForResource:@"en" ofType:@"lproj"]];
         for (NSString *key in stringKeys) {
             if (bundle != nil) {
-                NSString *value = [bundle localizedStringForKey:key value:key table:nil];
+                //CloudVeil start
+                NSString *value = [[bundle localizedStringForKey:key value:key table:nil] stringByReplacingOccurrencesOfString:@"Telegram" withString:@"CloudVeil Messenger"];
+                //CloudVeile end
                 if (value != nil) {
                     englishStrings[key] = value;
                 } else {

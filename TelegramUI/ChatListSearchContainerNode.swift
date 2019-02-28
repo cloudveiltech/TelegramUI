@@ -4,6 +4,7 @@ import Display
 import SwiftSignalKit
 import Postbox
 import TelegramCore
+import CloudVeilSecurityManager
 
 private enum ChatListRecentEntryStableId: Hashable {
     case topPeers
@@ -775,44 +776,48 @@ final class ChatListSearchContainerNode: SearchDisplayControllerContentNode {
                     }
                 }
                 
-                for renderedPeer in foundLocalPeers.peers {
-                    if let peer = renderedPeer.peers[renderedPeer.peerId], peer.id != account.peerId, filteredPeer(peer, accountPeer) {
-                        if !existingPeerIds.contains(peer.id) {
-                            existingPeerIds.insert(peer.id)
-                            var associatedPeer: Peer?
-                            if let associatedPeerId = peer.associatedPeerId {
-                                associatedPeer = renderedPeer.peers[associatedPeerId]
+                //CloudVeil start
+                if !MainController.SecurityStaticSettings.disableGlobalSearch {
+                    for renderedPeer in foundLocalPeers.peers {
+                        if let peer = renderedPeer.peers[renderedPeer.peerId], peer.id != account.peerId, filteredPeer(peer, accountPeer) {
+                            if !existingPeerIds.contains(peer.id) {
+                                existingPeerIds.insert(peer.id)
+                                var associatedPeer: Peer?
+                                if let associatedPeerId = peer.associatedPeerId {
+                                    associatedPeer = renderedPeer.peers[associatedPeerId]
+                                }
+                                entries.append(.localPeer(peer, associatedPeer, foundLocalPeers.unread[peer.id], index, presentationData.theme, presentationData.strings, presentationData.nameSortOrder, presentationData.nameDisplayOrder))
+                                index += 1
                             }
-                            entries.append(.localPeer(peer, associatedPeer, foundLocalPeers.unread[peer.id], index, presentationData.theme, presentationData.strings, presentationData.nameSortOrder, presentationData.nameDisplayOrder))
+                        }
+                    }
+                    
+                    for peer in foundRemotePeers.0 {
+                        if !existingPeerIds.contains(peer.peer.id), filteredPeer(peer.peer, accountPeer) {
+                            existingPeerIds.insert(peer.peer.id)
+                            entries.append(.localPeer(peer.peer, nil, nil, index, presentationData.theme, presentationData.strings, presentationData.nameSortOrder, presentationData.nameDisplayOrder))
+                            index += 1
+                        }
+                    }
+
+                    index = 0
+                    for peer in foundRemotePeers.1 {
+                        if !existingPeerIds.contains(peer.peer.id), filteredPeer(peer.peer, accountPeer) {
+                            existingPeerIds.insert(peer.peer.id)
+                            entries.append(.globalPeer(peer, nil, index, presentationData.theme, presentationData.strings, presentationData.nameSortOrder, presentationData.nameDisplayOrder))
+                            index += 1
+                        }
+                    }
+                    
+                    if !foundRemotePeers.2 {
+                        index = 0
+                        for message in foundRemoteMessages.0.0 {
+                            entries.append(.message(message, foundRemoteMessages.0.1[message.id.peerId], presentationData))
                             index += 1
                         }
                     }
                 }
-                
-                for peer in foundRemotePeers.0 {
-                    if !existingPeerIds.contains(peer.peer.id), filteredPeer(peer.peer, accountPeer) {
-                        existingPeerIds.insert(peer.peer.id)
-                        entries.append(.localPeer(peer.peer, nil, nil, index, presentationData.theme, presentationData.strings, presentationData.nameSortOrder, presentationData.nameDisplayOrder))
-                        index += 1
-                    }
-                }
-
-                index = 0
-                for peer in foundRemotePeers.1 {
-                    if !existingPeerIds.contains(peer.peer.id), filteredPeer(peer.peer, accountPeer) {
-                        existingPeerIds.insert(peer.peer.id)
-                        entries.append(.globalPeer(peer, nil, index, presentationData.theme, presentationData.strings, presentationData.nameSortOrder, presentationData.nameDisplayOrder))
-                        index += 1
-                    }
-                }
-                
-                if !foundRemotePeers.2 {
-                    index = 0
-                    for message in foundRemoteMessages.0.0 {
-                        entries.append(.message(message, foundRemoteMessages.0.1[message.id.peerId], presentationData))
-                        index += 1
-                    }
-                }
+                //CloudVeil end
                 
                 if addContact != nil && isViablePhoneNumber(query) {
                     entries.append(.addContact(query, presentationData.theme, presentationData.strings))

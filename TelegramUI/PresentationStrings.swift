@@ -3890,7 +3890,9 @@ public final class PresentationStrings {
         let sKeyList: [String] = loadedKeyMapping.1
         let sArgIdList: [Int] = loadedKeyMapping.2
         for i in 0 ..< sIdList.count {
-            _s[sIdList[i]] = getValue(primaryComponent, secondaryComponent, sKeyList[i])
+            //CloudVeil start
+            _s[sIdList[i]] = getValue(primaryComponent, secondaryComponent, sKeyList[i]).replacingOccurrences(of: "Telegram", with: "CloudVeil Messenger")
+            //CloudVeil end
         }
         for i in 0 ..< sArgIdList.count {
             _r[sArgIdList[i]] = extractArgumentRanges(_s[sArgIdList[i]]!)

@@ -125,7 +125,7 @@ private func chatMessageGalleryControllerData(account: Account, message: Message
             if message.containsSecretMedia {
                 let gallery = SecretMediaPreviewController(account: account, messageId: message.id)
                 return .secretGallery(gallery)
-            } else {
+            } else {                
                 let gallery = GalleryController(account: account, source: standalone ? .standaloneMessage(message) : .peerMessagesAtId(message.id), invertItemOrder: reverseMessageGalleryOrder, streamSingleVideo: stream, synchronousLoad: synchronousLoad, replaceRootController: { [weak navigationController] controller, ready in
                     navigationController?.replaceTopController(controller, animated: false, ready: ready)
                     }, baseNavigationController: navigationController, actionInteraction: actionInteraction)

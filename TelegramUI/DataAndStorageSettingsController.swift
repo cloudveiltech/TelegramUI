@@ -4,6 +4,7 @@ import SwiftSignalKit
 import Postbox
 import TelegramCore
 import LegacyComponents
+import CloudVeilSecurityManager
 
 private final class DataAndStorageControllerArguments {
     let openStorageUsage: () -> Void
@@ -321,9 +322,11 @@ private enum DataAndStorageEntry: ItemListNodeEntry {
                     arguments.toggleSaveEditedPhotos(value)
                 })
             case let .autoplayGifs(theme, text, value):
-                return ItemListSwitchItem(theme: theme, title: text, value: value, sectionId: self.section, style: .blocks, updated: { value in
+                //CloudVeil start
+                return ItemListSwitchItem(theme: theme, title: text, value: value, enabled: !MainController.SecurityStaticSettings.disableAutoPlayGifs, sectionId: self.section, style: .blocks, updated: { value in
                     arguments.toggleAutoplayGifs(value)
                 })
+                //CloudVeil end
             case let .downloadInBackground(theme, text, value):
                 return ItemListSwitchItem(theme: theme, title: text, value: value, sectionId: self.section, style: .blocks, updated: { value in
                     arguments.toggleDownloadInBackground(value)
@@ -506,7 +509,9 @@ func dataAndStorageController(account: Account) -> ViewController {
     }, toggleAutoplayGifs: { value in
         let _ = updateMediaDownloadSettingsInteractively(postbox: account.postbox, { settings in
             var settings = settings
-            settings.autoplayGifs = value
+            //CloudVeil start
+            settings.autoplayGifs = value && !MainController.SecurityStaticSettings.disableAutoPlayGifs
+            //CloudVeil end
             return settings
         }).start()
     }, toggleDownloadInBackground: { value in
