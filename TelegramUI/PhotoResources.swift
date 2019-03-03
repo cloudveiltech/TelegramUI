@@ -97,7 +97,6 @@ func chatMessagePhotoDatas(postbox: Postbox, photoReference: ImageMediaReference
                     }
                 }
                 
-                
                 return thumbnail
                 |> mapToSignal { thumbnailData in
                     if let thumbnailData = thumbnailData {
@@ -193,13 +192,29 @@ private let thumbnailGenerationMimeTypes: Set<String> = Set([
     "image/heic"
 ])
 
-private func chatMessageImageFileThumbnailDatas(account: Account, fileReference: FileMediaReference, pathExtension: String? = nil, progressive: Bool = false) -> Signal<(Data?, String?, Bool), NoError> {
-    let thumbnailResource = smallestImageRepresentation(fileReference.media.previewRepresentations)?.resource
+private func chatMessageImageFileThumbnailDatas(account: Account, fileReference: FileMediaReference, pathExtension: String? = nil, progressive: Bool = false, autoFetchFullSizeThumbnail: Bool = false) -> Signal<(Data?, String?, Bool), NoError> {
+    let thumbnailRepresentation = smallestImageRepresentation(fileReference.media.previewRepresentations)
+    let thumbnailResource = thumbnailRepresentation?.resource
     let decodedThumbnailData = fileReference.media.immediateThumbnailData.flatMap(decodeTinyThumbnail)
     
     if !thumbnailGenerationMimeTypes.contains(fileReference.media.mimeType) {
         if let decodedThumbnailData = decodedThumbnailData {
-            return .single((decodedThumbnailData, nil, false))
+            if autoFetchFullSizeThumbnail, let thumbnailRepresentation = thumbnailRepresentation, (thumbnailRepresentation.dimensions.width > 200.0 || thumbnailRepresentation.dimensions.height > 200.0) {
+                return Signal { subscriber in
+                    let fetchedDisposable = fetchedMediaResource(postbox: account.postbox, reference: fileReference.resourceReference(thumbnailRepresentation.resource), statsCategory: .video).start()
+                    let thumbnailDisposable = account.postbox.mediaBox.resourceData(thumbnailRepresentation.resource, attemptSynchronously: false).start(next: { next in
+                        let data: Data? = next.size == 0 ? nil : try? Data(contentsOf: URL(fileURLWithPath: next.path), options: [])
+                        subscriber.putNext((data ?? decodedThumbnailData, nil, false))
+                    }, error: subscriber.putError, completed: subscriber.putCompletion)
+                    
+                    return ActionDisposable {
+                        fetchedDisposable.dispose()
+                        thumbnailDisposable.dispose()
+                    }
+                }
+            } else {
+                return .single((decodedThumbnailData, nil, false))
+            }
         } else if let thumbnailResource = thumbnailResource {
             let fetchedThumbnail: Signal<FetchResourceSourceType, FetchResourceError> = fetchedMediaResource(postbox: account.postbox, reference: fileReference.resourceReference(thumbnailResource))
             return Signal { subscriber in
@@ -283,13 +298,14 @@ private func chatMessageImageFileThumbnailDatas(account: Account, fileReference:
     return signal
 }
 
-private func chatMessageVideoDatas(postbox: Postbox, fileReference: FileMediaReference, thumbnailSize: Bool = false, onlyFullSize: Bool = false) -> Signal<(Data?, (Data, String)?, Bool), NoError> {
+private func chatMessageVideoDatas(postbox: Postbox, fileReference: FileMediaReference, thumbnailSize: Bool = false, onlyFullSize: Bool = false, synchronousLoad: Bool = false, autoFetchFullSizeThumbnail: Bool = false) -> Signal<(Data?, (Data, String)?, Bool), NoError> {
     let fullSizeResource = fileReference.media.resource
     
-    let thumbnailResource = smallestImageRepresentation(fileReference.media.previewRepresentations)?.resource
+    let thumbnailRepresentation = smallestImageRepresentation(fileReference.media.previewRepresentations)
+    let thumbnailResource = thumbnailRepresentation?.resource
     
-    let maybeFullSize = postbox.mediaBox.cachedResourceRepresentation(fullSizeResource, representation: thumbnailSize ? CachedScaledVideoFirstFrameRepresentation(size: CGSize(width: 160.0, height: 160.0)) : CachedVideoFirstFrameRepresentation(), complete: false, fetch: false)
-    let fetchedFullSize = postbox.mediaBox.cachedResourceRepresentation(fullSizeResource, representation: thumbnailSize ? CachedScaledVideoFirstFrameRepresentation(size: CGSize(width: 160.0, height: 160.0)) : CachedVideoFirstFrameRepresentation(), complete: false, fetch: true)
+    let maybeFullSize = postbox.mediaBox.cachedResourceRepresentation(fullSizeResource, representation: thumbnailSize ? CachedScaledVideoFirstFrameRepresentation(size: CGSize(width: 160.0, height: 160.0)) : CachedVideoFirstFrameRepresentation(), complete: false, fetch: false, attemptSynchronously: synchronousLoad)
+    let fetchedFullSize = postbox.mediaBox.cachedResourceRepresentation(fullSizeResource, representation: thumbnailSize ? CachedScaledVideoFirstFrameRepresentation(size: CGSize(width: 160.0, height: 160.0)) : CachedVideoFirstFrameRepresentation(), complete: false, fetch: true, attemptSynchronously: synchronousLoad)
     
     let signal = maybeFullSize
     |> take(1)
@@ -303,11 +319,26 @@ private func chatMessageVideoDatas(postbox: Postbox, fileReference: FileMediaRef
             if onlyFullSize {
                 thumbnail = .single(nil)
             } else if let decodedThumbnailData = fileReference.media.immediateThumbnailData.flatMap(decodeTinyThumbnail) {
-                thumbnail = .single(decodedThumbnailData)
+                if autoFetchFullSizeThumbnail, let thumbnailRepresentation = thumbnailRepresentation, (thumbnailRepresentation.dimensions.width > 200.0 || thumbnailRepresentation.dimensions.height > 200.0) {
+                    thumbnail = Signal { subscriber in
+                        let fetchedDisposable = fetchedMediaResource(postbox: postbox, reference: fileReference.resourceReference(thumbnailRepresentation.resource), statsCategory: .video).start()
+                        let thumbnailDisposable = postbox.mediaBox.resourceData(thumbnailRepresentation.resource, attemptSynchronously: synchronousLoad).start(next: { next in
+                            let data: Data? = next.size == 0 ? nil : try? Data(contentsOf: URL(fileURLWithPath: next.path), options: [])
+                            subscriber.putNext(data ?? decodedThumbnailData)
+                        }, error: subscriber.putError, completed: subscriber.putCompletion)
+                        
+                        return ActionDisposable {
+                            fetchedDisposable.dispose()
+                            thumbnailDisposable.dispose()
+                        }
+                    }
+                } else {
+                    thumbnail = .single(decodedThumbnailData)
+                }
             } else if let thumbnailResource = thumbnailResource {
                 thumbnail = Signal { subscriber in
                     let fetchedDisposable = fetchedMediaResource(postbox: postbox, reference: fileReference.resourceReference(thumbnailResource), statsCategory: .video).start()
-                    let thumbnailDisposable = postbox.mediaBox.resourceData(thumbnailResource).start(next: { next in
+                    let thumbnailDisposable = postbox.mediaBox.resourceData(thumbnailResource, attemptSynchronously: synchronousLoad).start(next: { next in
                         subscriber.putNext(next.size == 0 ? nil : try? Data(contentsOf: URL(fileURLWithPath: next.path), options: []))
                     }, error: subscriber.putError, completed: subscriber.putCompletion)
                     
@@ -635,14 +666,14 @@ func rawMessagePhoto(postbox: Postbox, photoReference: ImageMediaReference) -> S
     }
 }
 
-public func chatMessagePhoto(postbox: Postbox, photoReference: ImageMediaReference, synchronousLoad: Bool = false, tinyThumbnailData: TinyThumbnailData? = nil) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
-    return chatMessagePhotoInternal(photoData: chatMessagePhotoDatas(postbox: postbox, photoReference: photoReference, synchronousLoad: synchronousLoad), synchronousLoad: synchronousLoad, tinyThumbnailData: tinyThumbnailData)
+public func chatMessagePhoto(postbox: Postbox, photoReference: ImageMediaReference, synchronousLoad: Bool = false) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+    return chatMessagePhotoInternal(photoData: chatMessagePhotoDatas(postbox: postbox, photoReference: photoReference, tryAdditionalRepresentations: true, synchronousLoad: synchronousLoad), synchronousLoad: synchronousLoad)
     |> map { _, generate in
         return generate
     }
 }
 
-public func chatMessagePhotoInternal(photoData: Signal<(Data?, Data?, Bool), NoError>, synchronousLoad: Bool = false, tinyThumbnailData: TinyThumbnailData? = nil) -> Signal<(() -> CGSize?, (TransformImageArguments) -> DrawingContext?), NoError> {
+public func chatMessagePhotoInternal(photoData: Signal<(Data?, Data?, Bool), NoError>, synchronousLoad: Bool = false) -> Signal<(() -> CGSize?, (TransformImageArguments) -> DrawingContext?), NoError> {
     return photoData
     |> map { (thumbnailData, fullSizeData, fullSizeComplete) in
         return ({
@@ -686,53 +717,42 @@ public func chatMessagePhotoInternal(photoData: Signal<(Data?, Data?, Bool), NoE
             if let thumbnailData = thumbnailData, let imageSource = CGImageSourceCreateWithData(thumbnailData as CFData, nil), let image = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) {
                 thumbnailImage = image
             }
-            
-            if GlobalExperimentalSettings.forceTinyThumbnailsPreview {
-                if let fullSizeImageValue = fullSizeImage {
-                    if let data = compressTinyThumbnail(UIImage(cgImage: fullSizeImageValue)) {
-                        if let result = decompressTinyThumbnail(data: data) {
-                            fullSizeImage = nil
-                            thumbnailImage = result.cgImage
-                        }
-                    }
-                }
-            } else if let tinyThumbnailData = tinyThumbnailData {
-                if let result = decompressTinyThumbnail(data: tinyThumbnailData) {
-                    thumbnailImage = result.cgImage
-                }
-            }
-            
+                        
             var blurredThumbnailImage: UIImage?
             if let thumbnailImage = thumbnailImage {
                 let thumbnailSize = CGSize(width: thumbnailImage.width, height: thumbnailImage.height)
                 
-                let initialThumbnailContextFittingSize = fittedSize.fitted(CGSize(width: 90.0, height: 90.0))
-                
-                let thumbnailContextSize = thumbnailSize.aspectFitted(initialThumbnailContextFittingSize)
-                let thumbnailContext = DrawingContext(size: thumbnailContextSize, scale: 1.0)
-                thumbnailContext.withFlippedContext { c in
-                    c.draw(thumbnailImage, in: CGRect(origin: CGPoint(), size: thumbnailContextSize))
-                }
-                telegramFastBlurMore(Int32(thumbnailContextSize.width), Int32(thumbnailContextSize.height), Int32(thumbnailContext.bytesPerRow), thumbnailContext.bytes)
-                
-                var thumbnailContextFittingSize = CGSize(width: floor(arguments.drawingSize.width * 0.5), height: floor(arguments.drawingSize.width * 0.5))
-                if thumbnailContextFittingSize.width < 150.0 || thumbnailContextFittingSize.height < 150.0 {
-                    thumbnailContextFittingSize = thumbnailContextFittingSize.aspectFilled(CGSize(width: 150.0, height: 150.0))
-                }
-                
-                if thumbnailContextFittingSize.width > thumbnailContextSize.width {
-                    let additionalContextSize = thumbnailContextFittingSize
-                    let additionalBlurContext = DrawingContext(size: additionalContextSize, scale: 1.0)
-                    additionalBlurContext.withFlippedContext { c in
-                        c.interpolationQuality = .default
-                        if let image = thumbnailContext.generateImage()?.cgImage {
-                            c.draw(image, in: CGRect(origin: CGPoint(), size: additionalContextSize))
-                        }
-                    }
-                    telegramFastBlur(Int32(additionalContextSize.width), Int32(additionalContextSize.height), Int32(additionalBlurContext.bytesPerRow), additionalBlurContext.bytes)
-                    blurredThumbnailImage = additionalBlurContext.generateImage()
+                if thumbnailSize.width > 200.0 && thumbnailSize.height > 200.0 {
+                    blurredThumbnailImage = UIImage(cgImage: thumbnailImage)
                 } else {
-                    blurredThumbnailImage = thumbnailContext.generateImage()
+                    let initialThumbnailContextFittingSize = fittedSize.fitted(CGSize(width: 90.0, height: 90.0))
+                    
+                    let thumbnailContextSize = thumbnailSize.aspectFitted(initialThumbnailContextFittingSize)
+                    let thumbnailContext = DrawingContext(size: thumbnailContextSize, scale: 1.0)
+                    thumbnailContext.withFlippedContext { c in
+                        c.draw(thumbnailImage, in: CGRect(origin: CGPoint(), size: thumbnailContextSize))
+                    }
+                    telegramFastBlurMore(Int32(thumbnailContextSize.width), Int32(thumbnailContextSize.height), Int32(thumbnailContext.bytesPerRow), thumbnailContext.bytes)
+                    
+                    var thumbnailContextFittingSize = CGSize(width: floor(arguments.drawingSize.width * 0.5), height: floor(arguments.drawingSize.width * 0.5))
+                    if thumbnailContextFittingSize.width < 150.0 || thumbnailContextFittingSize.height < 150.0 {
+                        thumbnailContextFittingSize = thumbnailContextFittingSize.aspectFilled(CGSize(width: 150.0, height: 150.0))
+                    }
+                    
+                    if thumbnailContextFittingSize.width > thumbnailContextSize.width {
+                        let additionalContextSize = thumbnailContextFittingSize
+                        let additionalBlurContext = DrawingContext(size: additionalContextSize, scale: 1.0)
+                        additionalBlurContext.withFlippedContext { c in
+                            c.interpolationQuality = .default
+                            if let image = thumbnailContext.generateImage()?.cgImage {
+                                c.draw(image, in: CGRect(origin: CGPoint(), size: additionalContextSize))
+                            }
+                        }
+                        telegramFastBlur(Int32(additionalContextSize.width), Int32(additionalContextSize.height), Int32(additionalBlurContext.bytesPerRow), additionalBlurContext.bytes)
+                        blurredThumbnailImage = additionalBlurContext.generateImage()
+                    } else {
+                        blurredThumbnailImage = thumbnailContext.generateImage()
+                    }
                 }
             }
             
@@ -982,7 +1002,7 @@ public func chatMessagePhotoThumbnail(account: Account, photoReference: ImageMed
 }
 
 public func chatMessageVideoThumbnail(account: Account, fileReference: FileMediaReference) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
-    let signal = chatMessageVideoDatas(postbox: account.postbox, fileReference: fileReference, thumbnailSize: true)
+    let signal = chatMessageVideoDatas(postbox: account.postbox, fileReference: fileReference, thumbnailSize: true, autoFetchFullSizeThumbnail: true)
     
     return signal
     |> map { (thumbnailData, fullSizeData, fullSizeComplete) in
@@ -1035,16 +1055,20 @@ public func chatMessageVideoThumbnail(account: Account, fileReference: FileMedia
             
             var blurredThumbnailImage: UIImage?
             if let thumbnailImage = thumbnailImage {
-                let thumbnailSize = CGSize(width: thumbnailImage.width, height: thumbnailImage.height)
-                let thumbnailContextSize = thumbnailSize.aspectFitted(CGSize(width: 150.0, height: 150.0))
-                let thumbnailContext = DrawingContext(size: thumbnailContextSize, scale: 1.0)
-                thumbnailContext.withFlippedContext { c in
-                    c.interpolationQuality = .none
-                    c.draw(thumbnailImage, in: CGRect(origin: CGPoint(), size: thumbnailContextSize))
+                if max(thumbnailImage.width, thumbnailImage.height) > 200 {
+                    blurredThumbnailImage = UIImage(cgImage: thumbnailImage)
+                } else {
+                    let thumbnailSize = CGSize(width: thumbnailImage.width, height: thumbnailImage.height)
+                    let thumbnailContextSize = thumbnailSize.aspectFitted(CGSize(width: 150.0, height: 150.0))
+                    let thumbnailContext = DrawingContext(size: thumbnailContextSize, scale: 1.0)
+                    thumbnailContext.withFlippedContext { c in
+                        c.interpolationQuality = .none
+                        c.draw(thumbnailImage, in: CGRect(origin: CGPoint(), size: thumbnailContextSize))
+                    }
+                    telegramFastBlur(Int32(thumbnailContextSize.width), Int32(thumbnailContextSize.height), Int32(thumbnailContext.bytesPerRow), thumbnailContext.bytes)
+                    
+                    blurredThumbnailImage = thumbnailContext.generateImage()
                 }
-                telegramFastBlur(Int32(thumbnailContextSize.width), Int32(thumbnailContextSize.height), Int32(thumbnailContext.bytesPerRow), thumbnailContext.bytes)
-                
-                blurredThumbnailImage = thumbnailContext.generateImage()
             }
             
             context.withFlippedContext { c in
@@ -1476,22 +1500,22 @@ func gifPaneVideoThumbnail(account: Account, videoReference: FileMediaReference)
     }
 }
 
-func mediaGridMessageVideo(postbox: Postbox, videoReference: FileMediaReference, onlyFullSize: Bool = false) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
-    return internalMediaGridMessageVideo(postbox: postbox, videoReference: videoReference, onlyFullSize: onlyFullSize)
+func mediaGridMessageVideo(postbox: Postbox, videoReference: FileMediaReference, onlyFullSize: Bool = false, synchronousLoad: Bool = false, autoFetchFullSizeThumbnail: Bool = false) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+    return internalMediaGridMessageVideo(postbox: postbox, videoReference: videoReference, onlyFullSize: onlyFullSize, synchronousLoad: synchronousLoad, autoFetchFullSizeThumbnail: autoFetchFullSizeThumbnail)
     |> map {
         return $0.1
     }
 }
 
-func internalMediaGridMessageVideo(postbox: Postbox, videoReference: FileMediaReference, imageReference: ImageMediaReference? = nil, onlyFullSize: Bool = false) -> Signal<(() -> CGSize?, (TransformImageArguments) -> DrawingContext?), NoError> {
+func internalMediaGridMessageVideo(postbox: Postbox, videoReference: FileMediaReference, imageReference: ImageMediaReference? = nil, onlyFullSize: Bool = false, synchronousLoad: Bool = false, autoFetchFullSizeThumbnail: Bool = false) -> Signal<(() -> CGSize?, (TransformImageArguments) -> DrawingContext?), NoError> {
     let signal: Signal<(Data?, (Data, String)?, Bool), NoError>
     if let imageReference = imageReference {
-        signal = chatMessagePhotoDatas(postbox: postbox, photoReference: imageReference, tryAdditionalRepresentations: true)
+        signal = chatMessagePhotoDatas(postbox: postbox, photoReference: imageReference, tryAdditionalRepresentations: true, synchronousLoad: synchronousLoad)
         |> map { (thumbnailData, fullSizeData, fullSizeComplete) -> (Data?, (Data, String)?, Bool) in
             return (thumbnailData, fullSizeData.flatMap({ ($0, "") }), fullSizeComplete)
         }
     } else {
-        signal = chatMessageVideoDatas(postbox: postbox, fileReference: videoReference, onlyFullSize: onlyFullSize)
+        signal = chatMessageVideoDatas(postbox: postbox, fileReference: videoReference, onlyFullSize: onlyFullSize, synchronousLoad: synchronousLoad, autoFetchFullSizeThumbnail: autoFetchFullSizeThumbnail)
     }
     
     return signal
@@ -1514,14 +1538,19 @@ func internalMediaGridMessageVideo(postbox: Postbox, videoReference: FileMediaRe
             let context = DrawingContext(size: arguments.drawingSize, clear: true)
             
             let drawingRect = arguments.drawingRect
-            var fittedSize = arguments.imageSize.aspectFilled(arguments.boundingSize).fitted(arguments.imageSize)
-            if fittedSize.width < drawingRect.size.width && fittedSize.width >= drawingRect.size.width - 2.0 {
-                fittedSize.width = drawingRect.size.width
+            var drawingSize: CGSize
+            if case .aspectFill = arguments.resizeMode {
+                drawingSize = arguments.imageSize.aspectFilled(arguments.boundingSize)
+            } else {
+                drawingSize = arguments.imageSize.aspectFilled(arguments.boundingSize).fitted(arguments.imageSize)
             }
-            if fittedSize.height < drawingRect.size.height && fittedSize.height >= drawingRect.size.height - 2.0 {
-                fittedSize.height = drawingRect.size.height
+            if drawingSize.width < drawingRect.size.width && drawingSize.width >= drawingRect.size.width - 2.0 {
+                drawingSize.width = drawingRect.size.width
             }
-            let fittedRect = CGRect(origin: CGPoint(x: drawingRect.origin.x + (drawingRect.size.width - fittedSize.width) / 2.0, y: drawingRect.origin.y + (drawingRect.size.height - fittedSize.height) / 2.0), size: fittedSize)
+            if drawingSize.height < drawingRect.size.height && drawingSize.height >= drawingRect.size.height - 2.0 {
+                drawingSize.height = drawingRect.size.height
+            }
+            let fittedRect = CGRect(origin: CGPoint(x: drawingRect.origin.x + (drawingRect.size.width - drawingSize.width) / 2.0, y: drawingRect.origin.y + (drawingRect.size.height - drawingSize.height) / 2.0), size: drawingSize)
             
             var fullSizeImage: CGImage?
             var imageOrientation: UIImageOrientation = .up
@@ -1552,36 +1581,38 @@ func internalMediaGridMessageVideo(postbox: Postbox, videoReference: FileMediaRe
             
             var blurredThumbnailImage: UIImage?
             if let thumbnailImage = thumbnailImage {
-                let thumbnailSize = CGSize(width: thumbnailImage.width, height: thumbnailImage.height)
-                
-                let initialThumbnailContextFittingSize = fittedSize.fitted(CGSize(width: 100.0, height: 100.0))
-                
-                let thumbnailContextSize = thumbnailSize.aspectFitted(initialThumbnailContextFittingSize)
-                let thumbnailContext = DrawingContext(size: thumbnailContextSize, scale: 1.0)
-                thumbnailContext.withFlippedContext { c in
-                    c.interpolationQuality = .none
-                    c.draw(thumbnailImage, in: CGRect(origin: CGPoint(), size: thumbnailContextSize))
-                }
-                telegramFastBlur(Int32(thumbnailContextSize.width), Int32(thumbnailContextSize.height), Int32(thumbnailContext.bytesPerRow), thumbnailContext.bytes)
-                
-                var thumbnailContextFittingSize = CGSize(width: floor(arguments.drawingSize.width * 0.5), height: floor(arguments.drawingSize.width * 0.5))
-                if thumbnailContextFittingSize.width < 150.0 || thumbnailContextFittingSize.height < 150.0 {
-                    thumbnailContextFittingSize = thumbnailContextFittingSize.aspectFilled(CGSize(width: 150.0, height: 150.0))
-                }
-                
-                if thumbnailContextFittingSize.width > thumbnailContextSize.width {
-                    let additionalContextSize = thumbnailContextFittingSize
-                    let additionalBlurContext = DrawingContext(size: additionalContextSize, scale: 1.0)
-                    additionalBlurContext.withFlippedContext { c in
-                        c.interpolationQuality = .default
-                        if let image = thumbnailContext.generateImage()?.cgImage {
-                            c.draw(image, in: CGRect(origin: CGPoint(), size: additionalContextSize))
-                        }
-                    }
-                    telegramFastBlur(Int32(additionalContextSize.width), Int32(additionalContextSize.height), Int32(additionalBlurContext.bytesPerRow), additionalBlurContext.bytes)
-                    blurredThumbnailImage = additionalBlurContext.generateImage()
+                if max(thumbnailImage.width, thumbnailImage.height) > Int(min(200.0, min(drawingSize.width, drawingSize.height))) {
+                    blurredThumbnailImage = UIImage(cgImage: thumbnailImage)
                 } else {
-                    blurredThumbnailImage = thumbnailContext.generateImage()
+                    let thumbnailSize = CGSize(width: thumbnailImage.width, height: thumbnailImage.height)
+                    let initialThumbnailContextFittingSize = drawingSize.fitted(CGSize(width: 90.0, height: 90.0))
+                    
+                    let thumbnailContextSize = thumbnailSize.aspectFitted(initialThumbnailContextFittingSize)
+                    let thumbnailContext = DrawingContext(size: thumbnailContextSize, scale: 1.0)
+                    thumbnailContext.withFlippedContext { c in
+                        c.draw(thumbnailImage, in: CGRect(origin: CGPoint(), size: thumbnailContextSize))
+                    }
+                    telegramFastBlurMore(Int32(thumbnailContextSize.width), Int32(thumbnailContextSize.height), Int32(thumbnailContext.bytesPerRow), thumbnailContext.bytes)
+                    
+                    var thumbnailContextFittingSize = CGSize(width: floor(arguments.drawingSize.width * 0.5), height: floor(arguments.drawingSize.width * 0.5))
+                    if thumbnailContextFittingSize.width < 150.0 || thumbnailContextFittingSize.height < 150.0 {
+                        thumbnailContextFittingSize = thumbnailContextFittingSize.aspectFilled(CGSize(width: 150.0, height: 150.0))
+                    }
+                    
+                    if thumbnailContextFittingSize.width > thumbnailContextSize.width {
+                        let additionalContextSize = thumbnailContextFittingSize
+                        let additionalBlurContext = DrawingContext(size: additionalContextSize, scale: 1.0)
+                        additionalBlurContext.withFlippedContext { c in
+                            c.interpolationQuality = .default
+                            if let image = thumbnailContext.generateImage()?.cgImage {
+                                c.draw(image, in: CGRect(origin: CGPoint(), size: additionalContextSize))
+                            }
+                        }
+                        telegramFastBlur(Int32(additionalContextSize.width), Int32(additionalContextSize.height), Int32(additionalBlurContext.bytesPerRow), additionalBlurContext.bytes)
+                        blurredThumbnailImage = additionalBlurContext.generateImage()
+                    } else {
+                        blurredThumbnailImage = thumbnailContext.generateImage()
+                    }
                 }
             }
             
@@ -1596,7 +1627,7 @@ func internalMediaGridMessageVideo(postbox: Postbox, videoReference: FileMediaRe
                                 var sideBlurredImage: UIImage?
                                 let thumbnailSize = CGSize(width: fullSizeImage.width, height: fullSizeImage.height)
                                 if true {
-                                    let initialThumbnailContextFittingSize = fittedSize.fitted(CGSize(width: 100.0, height: 100.0))
+                                    let initialThumbnailContextFittingSize = drawingSize.fitted(CGSize(width: 100.0, height: 100.0))
                                     
                                     let thumbnailContextSize = thumbnailSize.aspectFitted(initialThumbnailContextFittingSize)
                                     let thumbnailContext = DrawingContext(size: thumbnailContextSize, scale: 1.0)
@@ -1652,6 +1683,8 @@ func internalMediaGridMessageVideo(postbox: Postbox, videoReference: FileMediaRe
                         case let .fill(color):
                             c.setFillColor((arguments.emptyColor ?? color).cgColor)
                             c.fill(arguments.drawingRect)
+                        case .aspectFill:
+                            break
                     }
                 }
                 
@@ -1681,20 +1714,31 @@ func internalMediaGridMessageVideo(postbox: Postbox, videoReference: FileMediaRe
     }
 }
 
-func chatMessagePhotoStatus(account: Account, messageId: MessageId, photoReference: ImageMediaReference) -> Signal<MediaResourceStatus, NoError> {
+func chatMessagePhotoStatus(context: AccountContext, messageId: MessageId, photoReference: ImageMediaReference) -> Signal<MediaResourceStatus, NoError> {
     if let largestRepresentation = largestRepresentationForPhoto(photoReference.media) {
-        return account.telegramApplicationContext.fetchManager.fetchStatus(category: .image, location: .chat(messageId.peerId), locationKey: .messageId(messageId), resource: largestRepresentation.resource)
+        return context.fetchManager.fetchStatus(category: .image, location: .chat(messageId.peerId), locationKey: .messageId(messageId), resource: largestRepresentation.resource)
     } else {
         return .never()
     }
 }
 
-public func chatMessagePhotoInteractiveFetched(account: Account, photoReference: ImageMediaReference, storeToDownloadsPeerType: AutomaticMediaDownloadPeerType?) -> Signal<FetchResourceSourceType, FetchResourceError> {
+public func standaloneChatMessagePhotoInteractiveFetched(account: Account, photoReference: ImageMediaReference) -> Signal<FetchResourceSourceType, FetchResourceError> {
     if let largestRepresentation = largestRepresentationForPhoto(photoReference.media) {
         return fetchedMediaResource(postbox: account.postbox, reference: photoReference.resourceReference(largestRepresentation.resource), statsCategory: .image, reportResultStatus: true)
         |> mapToSignal { type -> Signal<FetchResourceSourceType, FetchResourceError> in
+            return .single(type)
+        }
+    } else {
+        return .never()
+    }
+}
+
+public func chatMessagePhotoInteractiveFetched(context: AccountContext, photoReference: ImageMediaReference, storeToDownloadsPeerType: MediaAutoDownloadPeerType?) -> Signal<FetchResourceSourceType, FetchResourceError> {
+    if let largestRepresentation = largestRepresentationForPhoto(photoReference.media) {
+        return fetchedMediaResource(postbox: context.account.postbox, reference: photoReference.resourceReference(largestRepresentation.resource), statsCategory: .image, reportResultStatus: true)
+        |> mapToSignal { type -> Signal<FetchResourceSourceType, FetchResourceError> in
             if case .remote = type, let peerType = storeToDownloadsPeerType {
-                return storeDownloadedMedia(storeManager: account.telegramApplicationContext.mediaManager?.downloadedMediaStoreManager, media: photoReference.abstract, peerType: peerType)
+                return storeDownloadedMedia(storeManager: context.downloadedMediaStoreManager, media: photoReference.abstract, peerType: peerType)
                 |> introduceError(FetchResourceError.self)
                 |> mapToSignal { _ -> Signal<FetchResourceSourceType, FetchResourceError> in
                     return .complete()
@@ -1862,10 +1906,13 @@ private func chatSecretMessageVideoData(account: Account, fileReference: FileMed
         
         let fetchedThumbnail = fetchedMediaResource(postbox: account.postbox, reference: fileReference.resourceReference(thumbnailResource))
         
+        let decodedThumbnailData = fileReference.media.immediateThumbnailData.flatMap(decodeTinyThumbnail)
+        
         let thumbnail = Signal<Data?, NoError> { subscriber in
             let fetchedDisposable = fetchedThumbnail.start()
             let thumbnailDisposable = account.postbox.mediaBox.resourceData(thumbnailResource).start(next: { next in
-                subscriber.putNext(next.size == 0 ? nil : try? Data(contentsOf: URL(fileURLWithPath: next.path), options: []))
+                let data = next.size == 0 ? nil : try? Data(contentsOf: URL(fileURLWithPath: next.path), options: [])
+                subscriber.putNext(data ?? decodedThumbnailData)
             }, error: subscriber.putError, completed: subscriber.putCompletion)
             
             return ActionDisposable {
@@ -2033,10 +2080,10 @@ func drawImage(context: CGContext, image: CGImage, orientation: UIImageOrientati
     }
 }
 
-func chatMessageImageFile(account: Account, fileReference: FileMediaReference, thumbnail: Bool, fetched: Bool = false) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+func chatMessageImageFile(account: Account, fileReference: FileMediaReference, thumbnail: Bool, fetched: Bool = false, autoFetchFullSizeThumbnail: Bool = false) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
     let signal: Signal<(Data?, String?, Bool), NoError>
     if thumbnail {
-        signal = chatMessageImageFileThumbnailDatas(account: account, fileReference: fileReference)
+        signal = chatMessageImageFileThumbnailDatas(account: account, fileReference: fileReference, autoFetchFullSizeThumbnail: true)
     } else {
         signal = chatMessageFileDatas(account: account, fileReference: fileReference, progressive: false, fetched: fetched)
     }
@@ -2087,36 +2134,40 @@ func chatMessageImageFile(account: Account, fileReference: FileMediaReference, t
             
             var blurredThumbnailImage: UIImage?
             if let thumbnailImage = thumbnailImage {
-                let thumbnailSize = CGSize(width: thumbnailImage.width, height: thumbnailImage.height)
-                
-                let initialThumbnailContextFittingSize = fittedSize.fitted(CGSize(width: 100.0, height: 100.0))
-                
-                let thumbnailContextSize = thumbnailSize.aspectFitted(initialThumbnailContextFittingSize)
-                let thumbnailContext = DrawingContext(size: thumbnailContextSize, scale: 1.0)
-                thumbnailContext.withFlippedContext { c in
-                    c.interpolationQuality = .none
-                    c.draw(thumbnailImage, in: CGRect(origin: CGPoint(), size: thumbnailContextSize))
-                }
-                telegramFastBlur(Int32(thumbnailContextSize.width), Int32(thumbnailContextSize.height), Int32(thumbnailContext.bytesPerRow), thumbnailContext.bytes)
-                
-                var thumbnailContextFittingSize = CGSize(width: floor(arguments.drawingSize.width * 0.5), height: floor(arguments.drawingSize.width * 0.5))
-                if thumbnailContextFittingSize.width < 150.0 || thumbnailContextFittingSize.height < 150.0 {
-                    thumbnailContextFittingSize = thumbnailContextFittingSize.aspectFilled(CGSize(width: 150.0, height: 150.0))
-                }
-                
-                if thumbnailContextFittingSize.width > thumbnailContextSize.width {
-                    let additionalContextSize = thumbnailContextFittingSize
-                    let additionalBlurContext = DrawingContext(size: additionalContextSize, scale: 1.0)
-                    additionalBlurContext.withFlippedContext { c in
-                        c.interpolationQuality = .default
-                        if let image = thumbnailContext.generateImage()?.cgImage {
-                            c.draw(image, in: CGRect(origin: CGPoint(), size: additionalContextSize))
-                        }
-                    }
-                    telegramFastBlur(Int32(additionalContextSize.width), Int32(additionalContextSize.height), Int32(additionalBlurContext.bytesPerRow), additionalBlurContext.bytes)
-                    blurredThumbnailImage = additionalBlurContext.generateImage()
+                if max(thumbnailImage.width, thumbnailImage.height) > 200 {
+                    blurredThumbnailImage = UIImage(cgImage: thumbnailImage)
                 } else {
-                    blurredThumbnailImage = thumbnailContext.generateImage()
+                    let thumbnailSize = CGSize(width: thumbnailImage.width, height: thumbnailImage.height)
+                    
+                    let initialThumbnailContextFittingSize = fittedSize.fitted(CGSize(width: 100.0, height: 100.0))
+                    
+                    let thumbnailContextSize = thumbnailSize.aspectFitted(initialThumbnailContextFittingSize)
+                    let thumbnailContext = DrawingContext(size: thumbnailContextSize, scale: 1.0)
+                    thumbnailContext.withFlippedContext { c in
+                        c.interpolationQuality = .none
+                        c.draw(thumbnailImage, in: CGRect(origin: CGPoint(), size: thumbnailContextSize))
+                    }
+                    telegramFastBlur(Int32(thumbnailContextSize.width), Int32(thumbnailContextSize.height), Int32(thumbnailContext.bytesPerRow), thumbnailContext.bytes)
+                    
+                    var thumbnailContextFittingSize = CGSize(width: floor(arguments.drawingSize.width * 0.5), height: floor(arguments.drawingSize.width * 0.5))
+                    if thumbnailContextFittingSize.width < 150.0 || thumbnailContextFittingSize.height < 150.0 {
+                        thumbnailContextFittingSize = thumbnailContextFittingSize.aspectFilled(CGSize(width: 150.0, height: 150.0))
+                    }
+                    
+                    if thumbnailContextFittingSize.width > thumbnailContextSize.width {
+                        let additionalContextSize = thumbnailContextFittingSize
+                        let additionalBlurContext = DrawingContext(size: additionalContextSize, scale: 1.0)
+                        additionalBlurContext.withFlippedContext { c in
+                            c.interpolationQuality = .default
+                            if let image = thumbnailContext.generateImage()?.cgImage {
+                                c.draw(image, in: CGRect(origin: CGPoint(), size: additionalContextSize))
+                            }
+                        }
+                        telegramFastBlur(Int32(additionalContextSize.width), Int32(additionalContextSize.height), Int32(additionalBlurContext.bytesPerRow), additionalBlurContext.bytes)
+                        blurredThumbnailImage = additionalBlurContext.generateImage()
+                    } else {
+                        blurredThumbnailImage = thumbnailContext.generateImage()
+                    }
                 }
             }
             

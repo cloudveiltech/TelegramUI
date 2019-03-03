@@ -42,6 +42,11 @@ struct ChatMessageItemImageLayoutConstants {
     let minDimensions: CGSize
 }
 
+struct ChatMessageItemVideoLayoutConstants {
+    let maxHorizontalHeight: CGFloat
+    let maxVerticalHeight: CGFloat
+}
+
 struct ChatMessageItemInstantVideoConstants {
     let insets: UIEdgeInsets
     let dimensions: CGSize
@@ -61,6 +66,7 @@ struct ChatMessageItemLayoutConstants {
     
     let bubble: ChatMessageItemBubbleLayoutConstants
     let image: ChatMessageItemImageLayoutConstants
+    let video: ChatMessageItemVideoLayoutConstants
     let text: ChatMessageItemTextLayoutConstants
     let file: ChatMessageItemFileLayoutConstants
     let instantVideo: ChatMessageItemInstantVideoConstants
@@ -70,9 +76,10 @@ struct ChatMessageItemLayoutConstants {
         self.avatarDiameter = 37.0
         self.timestampHeaderHeight = 34.0
         
-        self.bubble = ChatMessageItemBubbleLayoutConstants(edgeInset: 4.0, defaultSpacing: 2.0 + UIScreenPixel, mergedSpacing: 1.0, maximumWidthFill: ChatMessageItemWidthFill(compactInset: 40.0, compactWidthBoundary: 500.0, freeMaximumFillFactor: 0.85), minimumSize: CGSize(width: 40.0, height: 35.0), contentInsets: UIEdgeInsets(top: 0.0, left: 6.0, bottom: 0.0, right: 0.0), borderInset: UIScreenPixel)
+        self.bubble = ChatMessageItemBubbleLayoutConstants(edgeInset: 4.0, defaultSpacing: 2.0 + UIScreenPixel, mergedSpacing: 1.0, maximumWidthFill: ChatMessageItemWidthFill(compactInset: 36.0, compactWidthBoundary: 500.0, freeMaximumFillFactor: 0.85), minimumSize: CGSize(width: 40.0, height: 35.0), contentInsets: UIEdgeInsets(top: 0.0, left: 6.0, bottom: 0.0, right: 0.0), borderInset: UIScreenPixel)
         self.text = ChatMessageItemTextLayoutConstants(bubbleInsets: UIEdgeInsets(top: 6.0 + UIScreenPixel, left: 12.0, bottom: 6.0 - UIScreenPixel, right: 12.0))
-        self.image = ChatMessageItemImageLayoutConstants(bubbleInsets: UIEdgeInsets(top: 1.0 + UIScreenPixel, left: 1.0 + UIScreenPixel, bottom: 1.0 + UIScreenPixel, right: 1.0 + UIScreenPixel), statusInsets: UIEdgeInsets(top: 0.0, left: 0.0, bottom: 6.0, right: 6.0), defaultCornerRadius: 17.0, mergedCornerRadius: 5.0, contentMergedCornerRadius: 5.0, maxDimensions: CGSize(width: 300.0, height: 300.0), minDimensions: CGSize(width: 74.0, height: 74.0))
+        self.image = ChatMessageItemImageLayoutConstants(bubbleInsets: UIEdgeInsets(top: 1.0 + UIScreenPixel, left: 1.0 + UIScreenPixel, bottom: 1.0 + UIScreenPixel, right: 1.0 + UIScreenPixel), statusInsets: UIEdgeInsets(top: 0.0, left: 0.0, bottom: 6.0, right: 6.0), defaultCornerRadius: 17.0, mergedCornerRadius: 5.0, contentMergedCornerRadius: 5.0, maxDimensions: CGSize(width: 300.0, height: 300.0), minDimensions: CGSize(width: 170.0, height: 74.0))
+        self.video = ChatMessageItemVideoLayoutConstants(maxHorizontalHeight: 250.0, maxVerticalHeight: 300.0)
         self.file = ChatMessageItemFileLayoutConstants(bubbleInsets: UIEdgeInsets(top: 15.0, left: 9.0, bottom: 15.0, right: 12.0))
         self.instantVideo = ChatMessageItemInstantVideoConstants(insets: UIEdgeInsets(top: 4.0, left: 0.0, bottom: 4.0, right: 0.0), dimensions: CGSize(width: 212.0, height: 212.0))
         self.wallpapers = ChatMessageItemWallpaperLayoutConstants(maxTextWidth: 180.0)
@@ -91,6 +98,38 @@ enum ChatMessagePeekPreviewContent {
     case url(ASDisplayNode, CGRect, String)
 }
 
+final class ChatMessageAccessibilityData {
+    let label: String?
+    let value: String?
+    
+    init(item: ChatMessageItem) {
+        let label: String
+        let value: String
+        
+        if let author = item.message.author {
+            if item.message.effectivelyIncoming(item.context.account.peerId) {
+                label = author.displayTitle
+            } else {
+                label = "Outgoing message"
+            }
+        } else {
+            label = "Post"
+        }
+        
+        if let chatPeer = item.message.peers[item.message.id.peerId] {
+            let (_, _, messageText) = chatListItemStrings(strings: item.presentationData.strings, nameDisplayOrder: item.presentationData.nameDisplayOrder, message: item.message, chatPeer: RenderedPeer(peer: chatPeer), accountPeerId: item.context.account.peerId)
+            var result = ""
+            result += "\(messageText)"
+            value = result
+        } else {
+            value = "Empty"
+        }
+        
+        self.label = label
+        self.value = value
+    }
+}
+
 public class ChatMessageItemView: ListViewItemNode {
     let layoutConstants = defaultChatMessageItemLayoutConstants
     
@@ -103,6 +142,8 @@ public class ChatMessageItemView: ListViewItemNode {
     public init(layerBacked: Bool) {
         super.init(layerBacked: layerBacked, dynamicBounce: true, rotated: true)
         self.transform = CATransform3DMakeRotation(CGFloat.pi, 0.0, 0.0, 1.0)
+        
+        self.isAccessibilityElement = true
     }
 
     required public init?(coder aDecoder: NSCoder) {
@@ -133,7 +174,7 @@ public class ChatMessageItemView: ListViewItemNode {
     
     override public func layoutAccessoryItemNode(_ accessoryItemNode: ListViewAccessoryItemNode, leftInset: CGFloat, rightInset: CGFloat) {
         if let avatarNode = accessoryItemNode as? ChatMessageAvatarAccessoryItemNode {
-            avatarNode.frame = CGRect(origin: CGPoint(x: leftInset + 3.0, y: self.apparentFrame.height - 38.0 - self.insets.top + 1.0), size: CGSize(width: 38.0, height: 38.0))
+            avatarNode.frame = CGRect(origin: CGPoint(x: leftInset + 3.0, y: self.apparentFrame.height - 38.0 - self.insets.top - 2.0 - UIScreenPixel), size: CGSize(width: 38.0, height: 38.0))
         }
     }
     
@@ -154,7 +195,7 @@ public class ChatMessageItemView: ListViewItemNode {
         }
     }
     
-    func transitionNode(id: MessageId, media: Media) -> (ASDisplayNode, () -> UIView?)? {
+    func transitionNode(id: MessageId, media: Media) -> (ASDisplayNode, () -> (UIView?, UIView?))? {
         return nil
     }
     
@@ -166,6 +207,9 @@ public class ChatMessageItemView: ListViewItemNode {
     }
     
     func updateSelectionState(animated: Bool) {
+    }
+    
+    func updateSearchTextHighlightState() {
     }
     
     func updateHighlightedState(animated: Bool) {
@@ -189,6 +233,10 @@ public class ChatMessageItemView: ListViewItemNode {
     }
     
     func updateAutomaticMediaDownloadSettings() {
+    }
+    
+    func playMediaWithSound() -> (() -> Void)? {
+        return nil
     }
     
     override public func header() -> ListViewItemHeader? {

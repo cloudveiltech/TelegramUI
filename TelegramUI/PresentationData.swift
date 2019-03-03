@@ -163,17 +163,15 @@ private func currentPersonNameSortOrder() -> PresentationPersonNameOrder {
 
 public final class InitialPresentationDataAndSettings {
     public let presentationData: PresentationData
-    public let automaticMediaDownloadSettings: AutomaticMediaDownloadSettings
-    public let limitsConfiguration: LimitsConfiguration
+    public let automaticMediaDownloadSettings: MediaAutoDownloadSettings
     public let callListSettings: CallListSettings
     public let inAppNotificationSettings: InAppNotificationSettings
     public let mediaInputSettings: MediaInputSettings
     public let experimentalUISettings: ExperimentalUISettings
     
-    init(presentationData: PresentationData, automaticMediaDownloadSettings: AutomaticMediaDownloadSettings, limitsConfiguration: LimitsConfiguration, callListSettings: CallListSettings, inAppNotificationSettings: InAppNotificationSettings, mediaInputSettings: MediaInputSettings, experimentalUISettings: ExperimentalUISettings) {
+    init(presentationData: PresentationData, automaticMediaDownloadSettings: MediaAutoDownloadSettings, callListSettings: CallListSettings, inAppNotificationSettings: InAppNotificationSettings, mediaInputSettings: MediaInputSettings, experimentalUISettings: ExperimentalUISettings) {
         self.presentationData = presentationData
         self.automaticMediaDownloadSettings = automaticMediaDownloadSettings
-        self.limitsConfiguration = limitsConfiguration
         self.callListSettings = callListSettings
         self.inAppNotificationSettings = inAppNotificationSettings
         self.mediaInputSettings = mediaInputSettings
@@ -181,64 +179,54 @@ public final class InitialPresentationDataAndSettings {
     }
 }
 
-public func currentPresentationDataAndSettings(postbox: Postbox) -> Signal<InitialPresentationDataAndSettings, NoError> {
-    return postbox.transaction { transaction -> (PresentationThemeSettings, LocalizationSettings?, AutomaticMediaDownloadSettings, LimitsConfiguration, CallListSettings, InAppNotificationSettings, MediaInputSettings, ExperimentalUISettings, ContactSynchronizationSettings) in
-        let themeSettings: PresentationThemeSettings
-        if let current = transaction.getPreferencesEntry(key: ApplicationSpecificPreferencesKeys.presentationThemeSettings) as? PresentationThemeSettings {
-            themeSettings = current
-        } else {
-            themeSettings = PresentationThemeSettings.defaultSettings
-        }
-        
+public func currentPresentationDataAndSettings(accountManager: AccountManager) -> Signal<InitialPresentationDataAndSettings, NoError> {
+    return accountManager.transaction { transaction -> InitialPresentationDataAndSettings in
         let localizationSettings: LocalizationSettings?
-        if let current = transaction.getPreferencesEntry(key: PreferencesKeys.localizationSettings) as? LocalizationSettings {
+        if let current = transaction.getSharedData(SharedDataKeys.localizationSettings) as? LocalizationSettings {
             localizationSettings = current
         } else {
             localizationSettings = nil
         }
         
-        let automaticMediaDownloadSettings: AutomaticMediaDownloadSettings
-        if let value = transaction.getPreferencesEntry(key: ApplicationSpecificPreferencesKeys.automaticMediaDownloadSettings) as? AutomaticMediaDownloadSettings {
-            automaticMediaDownloadSettings = value
+        let themeSettings: PresentationThemeSettings
+        if let current = transaction.getSharedData(ApplicationSpecificSharedDataKeys.presentationThemeSettings) as? PresentationThemeSettings {
+            themeSettings = current
         } else {
-            automaticMediaDownloadSettings = AutomaticMediaDownloadSettings.defaultSettings
+            themeSettings = PresentationThemeSettings.defaultSettings
         }
         
-        let limitsConfiguration: LimitsConfiguration
-        if let value = transaction.getPreferencesEntry(key: PreferencesKeys.limitsConfiguration) as? LimitsConfiguration {
-            limitsConfiguration = value
+        let automaticMediaDownloadSettings: MediaAutoDownloadSettings
+        if let value = transaction.getSharedData(ApplicationSpecificSharedDataKeys.automaticMediaDownloadSettings) as? MediaAutoDownloadSettings {
+            automaticMediaDownloadSettings = value
         } else {
-            limitsConfiguration = LimitsConfiguration.defaultValue
+            automaticMediaDownloadSettings = MediaAutoDownloadSettings.defaultSettings
         }
         
         let callListSettings: CallListSettings
-        if let value = transaction.getPreferencesEntry(key: ApplicationSpecificPreferencesKeys.callListSettings) as? CallListSettings {
+        if let value = transaction.getSharedData(ApplicationSpecificSharedDataKeys.callListSettings) as? CallListSettings {
             callListSettings = value
         } else {
             callListSettings = CallListSettings.defaultSettings
         }
         
         let inAppNotificationSettings: InAppNotificationSettings
-        if let value = transaction.getPreferencesEntry(key: ApplicationSpecificPreferencesKeys.inAppNotificationSettings) as? InAppNotificationSettings {
+        if let value = transaction.getSharedData(ApplicationSpecificSharedDataKeys.inAppNotificationSettings) as? InAppNotificationSettings {
             inAppNotificationSettings = value
         } else {
             inAppNotificationSettings = InAppNotificationSettings.defaultSettings
         }
         
         let mediaInputSettings: MediaInputSettings
-        if let value = transaction.getPreferencesEntry(key: ApplicationSpecificPreferencesKeys.mediaInputSettings) as? MediaInputSettings {
+        if let value = transaction.getSharedData(ApplicationSpecificSharedDataKeys.mediaInputSettings) as? MediaInputSettings {
             mediaInputSettings = value
         } else {
             mediaInputSettings = MediaInputSettings.defaultSettings
         }
         
-        let experimentalUISettings: ExperimentalUISettings = (transaction.getPreferencesEntry(key: ApplicationSpecificPreferencesKeys.experimentalUISettings) as? ExperimentalUISettings) ?? ExperimentalUISettings.defaultSettings
+        let experimentalUISettings: ExperimentalUISettings = (transaction.getSharedData(ApplicationSpecificSharedDataKeys.experimentalUISettings) as? ExperimentalUISettings) ?? ExperimentalUISettings.defaultSettings
         
-        let contactSettings: ContactSynchronizationSettings = (transaction.getPreferencesEntry(key: ApplicationSpecificPreferencesKeys.contactSynchronizationSettings) as? ContactSynchronizationSettings) ?? ContactSynchronizationSettings.defaultSettings
+        let contactSettings: ContactSynchronizationSettings = (transaction.getSharedData(ApplicationSpecificSharedDataKeys.contactSynchronizationSettings) as? ContactSynchronizationSettings) ?? ContactSynchronizationSettings.defaultSettings
         
-        return (themeSettings, localizationSettings, automaticMediaDownloadSettings, limitsConfiguration, callListSettings, inAppNotificationSettings, mediaInputSettings, experimentalUISettings, contactSettings)
-    }
-    |> map { (themeSettings, localizationSettings, automaticMediaDownloadSettings, limitsConfiguration, callListSettings, inAppNotificationSettings, mediaInputSettings, experimentalUISettings, contactSettings) -> InitialPresentationDataAndSettings in
         let themeValue: PresentationTheme
         
         let effectiveTheme: PresentationThemeReference
@@ -273,7 +261,7 @@ public func currentPresentationDataAndSettings(postbox: Postbox) -> Signal<Initi
                     case .nightAccent:
                         themeValue = defaultDarkAccentPresentationTheme
                     case .day:
-                        themeValue = makeDefaultDayPresentationTheme(accentColor: themeSettings.themeAccentColor ?? defaultDayAccentColor)
+                        themeValue = makeDefaultDayPresentationTheme(accentColor: themeSettings.themeAccentColor ?? defaultDayAccentColor, serviceBackgroundColor: defaultServiceBackgroundColor)
                 }
         }
         let stringsValue: PresentationStrings
@@ -285,7 +273,7 @@ public func currentPresentationDataAndSettings(postbox: Postbox) -> Signal<Initi
         let dateTimeFormat = currentDateTimeFormat()
         let nameDisplayOrder = contactSettings.nameDisplayOrder
         let nameSortOrder = currentPersonNameSortOrder()
-        return InitialPresentationDataAndSettings(presentationData: PresentationData(strings: stringsValue, theme: themeValue, chatWallpaper: effectiveChatWallpaper, volumeControlStatusBarIcons: volumeControlStatusBarIcons(), fontSize: themeSettings.fontSize, dateTimeFormat: dateTimeFormat, nameDisplayOrder: nameDisplayOrder, nameSortOrder: nameSortOrder, disableAnimations: themeSettings.disableAnimations), automaticMediaDownloadSettings: automaticMediaDownloadSettings, limitsConfiguration: limitsConfiguration, callListSettings: callListSettings, inAppNotificationSettings: inAppNotificationSettings, mediaInputSettings: mediaInputSettings, experimentalUISettings: experimentalUISettings)
+        return InitialPresentationDataAndSettings(presentationData: PresentationData(strings: stringsValue, theme: themeValue, chatWallpaper: effectiveChatWallpaper, volumeControlStatusBarIcons: volumeControlStatusBarIcons(), fontSize: themeSettings.fontSize, dateTimeFormat: dateTimeFormat, nameDisplayOrder: nameDisplayOrder, nameSortOrder: nameSortOrder, disableAnimations: themeSettings.disableAnimations), automaticMediaDownloadSettings: automaticMediaDownloadSettings, callListSettings: callListSettings, inAppNotificationSettings: inAppNotificationSettings, mediaInputSettings: mediaInputSettings, experimentalUISettings: experimentalUISettings)
     }
 }
 
@@ -298,7 +286,7 @@ private func roundTimeToDay(_ timestamp: Int32) -> Int32 {
     return Int32(components.hour! * 60 * 60 + components.minute! * 60 + components.second!)
 }
 
-private func automaticThemeShouldSwitchNow(_ settings: AutomaticThemeSwitchSetting, currentTheme: PresentationThemeReference) -> Bool {
+func automaticThemeShouldSwitchNow(_ settings: AutomaticThemeSwitchSetting, currentTheme: PresentationThemeReference) -> Bool {
     switch currentTheme {
         case let .builtin(builtin):
             switch builtin {
@@ -354,18 +342,17 @@ private func automaticThemeShouldSwitch(_ settings: AutomaticThemeSwitchSetting,
     }
 }
 
-public func updatedPresentationData(postbox: Postbox, applicationBindings: TelegramApplicationBindings) -> Signal<PresentationData, NoError> {
-    let preferencesKey = PostboxViewKey.preferences(keys: Set([ApplicationSpecificPreferencesKeys.presentationThemeSettings, PreferencesKeys.localizationSettings, ApplicationSpecificPreferencesKeys.contactSynchronizationSettings]))
-    return postbox.combinedView(keys: [preferencesKey])
-    |> mapToSignal { view -> Signal<PresentationData, NoError> in
+public func updatedPresentationData(accountManager: AccountManager, applicationBindings: TelegramApplicationBindings) -> Signal<PresentationData, NoError> {
+    return accountManager.sharedData(keys: [SharedDataKeys.localizationSettings, ApplicationSpecificSharedDataKeys.presentationThemeSettings, ApplicationSpecificSharedDataKeys.contactSynchronizationSettings])
+    |> mapToSignal { sharedData -> Signal<PresentationData, NoError> in
         let themeSettings: PresentationThemeSettings
-        if let current = (view.views[preferencesKey] as! PreferencesView).values[ApplicationSpecificPreferencesKeys.presentationThemeSettings] as? PresentationThemeSettings {
+        if let current = sharedData.entries[ApplicationSpecificSharedDataKeys.presentationThemeSettings] as? PresentationThemeSettings {
             themeSettings = current
         } else {
             themeSettings = PresentationThemeSettings.defaultSettings
         }
         
-        let contactSettings: ContactSynchronizationSettings = (view.views[preferencesKey] as! PreferencesView).values[ApplicationSpecificPreferencesKeys.contactSynchronizationSettings] as? ContactSynchronizationSettings ?? ContactSynchronizationSettings.defaultSettings
+        let contactSettings: ContactSynchronizationSettings = sharedData.entries[ApplicationSpecificSharedDataKeys.contactSynchronizationSettings] as? ContactSynchronizationSettings ?? ContactSynchronizationSettings.defaultSettings
         
         let currentWallpaper: TelegramWallpaper
         if let themeSpecificWallpaper = themeSettings.themeSpecificChatWallpapers[themeSettings.theme.index] {
@@ -375,10 +362,10 @@ public func updatedPresentationData(postbox: Postbox, applicationBindings: Teleg
         }
         
         return (.single(UIColor(rgb: 0x000000, alpha: 0.3))
-        |> then(chatServiceBackgroundColor(wallpaper: currentWallpaper, postbox: postbox)))
+        |> then(chatServiceBackgroundColor(wallpaper: currentWallpaper, mediaBox: accountManager.mediaBox)))
         |> mapToSignal { serviceBackgroundColor in
             return applicationBindings.applicationInForeground
-            |> mapToSignal({ inForeground  -> Signal<PresentationData, NoError> in
+            |> mapToSignal { inForeground -> Signal<PresentationData, NoError> in
                 if inForeground {
                     return automaticThemeShouldSwitch(themeSettings.automaticThemeSwitchSetting, currentTheme: themeSettings.theme)
                     |> distinctUntilChanged
@@ -421,12 +408,12 @@ public func updatedPresentationData(postbox: Postbox, applicationBindings: Teleg
                                     case .nightAccent:
                                         themeValue = defaultDarkAccentPresentationTheme
                                     case .day:
-                                        themeValue = makeDefaultDayPresentationTheme(accentColor: themeSettings.themeAccentColor ?? defaultDayAccentColor)
+                                        themeValue = makeDefaultDayPresentationTheme(accentColor: themeSettings.themeAccentColor ?? defaultDayAccentColor, serviceBackgroundColor: serviceBackgroundColor)
                                 }
                         }
                         
                         let localizationSettings: LocalizationSettings?
-                        if let current = (view.views[preferencesKey] as! PreferencesView).values[PreferencesKeys.localizationSettings] as? LocalizationSettings {
+                        if let current = sharedData.entries[SharedDataKeys.localizationSettings] as? LocalizationSettings {
                             localizationSettings = current
                         } else {
                             localizationSettings = nil
@@ -448,7 +435,7 @@ public func updatedPresentationData(postbox: Postbox, applicationBindings: Teleg
                 } else {
                     return .complete()
                 }
-            })
+            }
         }
     }
 }
@@ -459,5 +446,5 @@ public func defaultPresentationData() -> PresentationData {
     let nameSortOrder = currentPersonNameSortOrder()
     
     let themeSettings = PresentationThemeSettings.defaultSettings
-    return PresentationData(strings: defaultPresentationStrings, theme: defaultPresentationTheme, chatWallpaper: .builtin, volumeControlStatusBarIcons: volumeControlStatusBarIcons(), fontSize: themeSettings.fontSize, dateTimeFormat: dateTimeFormat, nameDisplayOrder: nameDisplayOrder, nameSortOrder: nameSortOrder, disableAnimations: themeSettings.disableAnimations)
+    return PresentationData(strings: defaultPresentationStrings, theme: defaultPresentationTheme, chatWallpaper: .builtin(WallpaperSettings()), volumeControlStatusBarIcons: volumeControlStatusBarIcons(), fontSize: themeSettings.fontSize, dateTimeFormat: dateTimeFormat, nameDisplayOrder: nameDisplayOrder, nameSortOrder: nameSortOrder, disableAnimations: themeSettings.disableAnimations)
 }

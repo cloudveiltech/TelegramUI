@@ -154,7 +154,7 @@ private final class PresentationCallToneRenderer {
 }
 
 public final class PresentationCall {
-    private let account: Account
+    public let account: Account
     private let audioSession: ManagedAudioSession
     private let callSessionManager: CallSessionManager
     private let callKitIntegration: CallKitIntegration?
@@ -467,10 +467,10 @@ public final class PresentationCall {
                         self.callKitIntegration?.reportOutgoingCallConnected(uuid: sessionState.id, at: Date())
                     }
                 }
-            case .terminated:
+            case let .terminated(id, _, options):
                 self.audioSessionShouldBeActive.set(true)
                 if wasActive {
-                    self.ongoingContext.stop()
+                    self.ongoingContext.stop(callId: id, sendDebugLogs: options.contains(.sendDebugLogs))
                 }
             default:
                 self.audioSessionShouldBeActive.set(false)

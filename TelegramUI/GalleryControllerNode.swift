@@ -9,7 +9,7 @@ class GalleryControllerNode: ASDisplayNode, UIScrollViewDelegate, UIGestureRecog
     let footerNode: GalleryFooterNode
     var currentThumbnailContainerNode: GalleryThumbnailContainerNode?
     var overlayNode: ASDisplayNode?
-    var transitionDataForCentralItem: (() -> ((ASDisplayNode, () -> UIView?)?, (UIView) -> Void)?)?
+    var transitionDataForCentralItem: (() -> ((ASDisplayNode, () -> (UIView?, UIView?))?, (UIView) -> Void)?)?
     var dismiss: (() -> Void)?
     
     var containerLayout: (CGFloat, ContainerViewLayout)?
@@ -262,6 +262,8 @@ class GalleryControllerNode: ASDisplayNode, UIScrollViewDelegate, UIGestureRecog
     
     func animateOut(animateContent: Bool, completion: @escaping () -> Void) {
         self.isDismissed = true
+        
+        self.pager.isScrollEnabled = false
         
         var contentAnimationCompleted = true
         var interfaceAnimationCompleted = false

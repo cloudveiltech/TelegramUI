@@ -219,7 +219,13 @@ final class InstantPageTextItem: InstantPageItem {
         if let (index, dict) = self.attributesAtPoint(point) {
             if let _ = dict[NSAttributedStringKey(rawValue: TelegramTextAttributes.URL)] {
                 if let rects = self.attributeRects(name: NSAttributedStringKey(rawValue: TelegramTextAttributes.URL), at: index) {
-                    return rects.map { $0.insetBy(dx: 2.0, dy: -3.0) }
+                    return rects.compactMap { rect in
+                        if rect.width > 5.0 {
+                            return rect.insetBy(dx: 0.0, dy: -3.0)
+                        } else {
+                            return nil
+                        }
+                    }
                 }
             }
         }
@@ -312,7 +318,7 @@ final class InstantPageTextItem: InstantPageItem {
         return false
     }
     
-    func node(account: Account, strings: PresentationStrings, theme: InstantPageTheme, openMedia: @escaping (InstantPageMedia) -> Void, longPressMedia: @escaping (InstantPageMedia) -> Void, openPeer: @escaping (PeerId) -> Void, openUrl: @escaping (InstantPageUrlItem) -> Void, updateWebEmbedHeight: @escaping (CGFloat) -> Void, updateDetailsExpanded: @escaping (Bool) -> Void, currentExpandedDetails: [Int : Bool]?) -> (InstantPageNode & ASDisplayNode)? {
+    func node(context: AccountContext, strings: PresentationStrings, theme: InstantPageTheme, openMedia: @escaping (InstantPageMedia) -> Void, longPressMedia: @escaping (InstantPageMedia) -> Void, openPeer: @escaping (PeerId) -> Void, openUrl: @escaping (InstantPageUrlItem) -> Void, updateWebEmbedHeight: @escaping (CGFloat) -> Void, updateDetailsExpanded: @escaping (Bool) -> Void, currentExpandedDetails: [Int : Bool]?) -> (InstantPageNode & ASDisplayNode)? {
         return nil
     }
     
@@ -361,11 +367,11 @@ final class InstantPageScrollableTextItem: InstantPageScrollableItem {
         context.restoreGState()
     }
     
-    func node(account: Account, strings: PresentationStrings, theme: InstantPageTheme, openMedia: @escaping (InstantPageMedia) -> Void, longPressMedia: @escaping (InstantPageMedia) -> Void, openPeer: @escaping (PeerId) -> Void, openUrl: @escaping (InstantPageUrlItem) -> Void, updateWebEmbedHeight: @escaping (CGFloat) -> Void, updateDetailsExpanded: @escaping (Bool) -> Void, currentExpandedDetails: [Int : Bool]?) -> (ASDisplayNode & InstantPageNode)? {
+    func node(context: AccountContext, strings: PresentationStrings, theme: InstantPageTheme, openMedia: @escaping (InstantPageMedia) -> Void, longPressMedia: @escaping (InstantPageMedia) -> Void, openPeer: @escaping (PeerId) -> Void, openUrl: @escaping (InstantPageUrlItem) -> Void, updateWebEmbedHeight: @escaping (CGFloat) -> Void, updateDetailsExpanded: @escaping (Bool) -> Void, currentExpandedDetails: [Int : Bool]?) -> (ASDisplayNode & InstantPageNode)? {
         var additionalNodes: [InstantPageNode] = []
         for item in additionalItems {
             if item.wantsNode {
-                if let node = item.node(account: account, strings: strings, theme: theme, openMedia: { _ in }, longPressMedia: { _ in }, openPeer: { _ in }, openUrl: { _ in}, updateWebEmbedHeight: { _ in }, updateDetailsExpanded: { _ in }, currentExpandedDetails: nil) {
+                if let node = item.node(context: context, strings: strings, theme: theme, openMedia: { _ in }, longPressMedia: { _ in }, openPeer: { _ in }, openUrl: { _ in}, updateWebEmbedHeight: { _ in }, updateDetailsExpanded: { _ in }, currentExpandedDetails: nil) {
                     node.frame = item.frame
                     additionalNodes.append(node)
                 }

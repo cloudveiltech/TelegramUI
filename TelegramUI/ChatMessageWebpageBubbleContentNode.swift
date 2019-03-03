@@ -119,7 +119,7 @@ final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContentNode {
         super.init()
         
         self.addSubnode(self.contentNode)
-        self.contentNode.openMedia = { [weak self] stream in
+        self.contentNode.openMedia = { [weak self] mode in
             if let strongSelf = self, let item = strongSelf.item {
                 if let webPage = strongSelf.webPage, case let .Loaded(content) = webPage.content {
                     if let image = content.image, let instantPage = content.instantPage {
@@ -150,7 +150,16 @@ final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContentNode {
                 }
                 //CloudVeil end
                 
-                let _ = item.controllerInteraction.openMessage(item.message, stream ? .stream : .default)
+                let openChatMessageMode: ChatControllerInteractionOpenMessageMode
+                switch mode {
+                    case .default:
+                        openChatMessageMode = .default
+                    case .stream:
+                        openChatMessageMode = .stream
+                    case .automaticPlayback:
+                        openChatMessageMode = .automaticPlayback
+                }
+                let _ = item.controllerInteraction.openMessage(item.message, openChatMessageMode)
             }
         }
         self.contentNode.activateAction = { [weak self] in
@@ -247,17 +256,39 @@ final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContentNode {
                 }
                 
                 var mainMedia: Media?
+
+                var automaticPlayback = false
+                
+                if let file = webpage.file, !file.isAnimated, item.controllerInteraction.automaticMediaDownloadSettings.autoplayVideos {
+                    var automaticDownload: InteractiveMediaNodeAutodownloadMode = .none
+                    if shouldDownloadMediaAutomatically(settings: item.controllerInteraction.automaticMediaDownloadSettings, peerType: item.associatedData.automaticDownloadPeerType, networkType: item.associatedData.automaticDownloadNetworkType, authorPeerId: item.message.author?.id, contactsPeerIds: item.associatedData.contactsPeerIds, media: file) {
+                        automaticDownload = .full
+                    }
+                    if case .full = automaticDownload {
+                        automaticPlayback = true
+                    } else {
+                        automaticPlayback = item.context.account.postbox.mediaBox.completedResourcePath(file.resource) != nil
+                    }
+                }
                 
                 switch type {
                     case .instagram, .twitter:
-                        mainMedia = webpage.image ?? webpage.file
+                        if automaticPlayback {
+                            mainMedia = webpage.file ?? webpage.image
+                        } else {
+                            mainMedia = webpage.image ?? webpage.file
+                        }
                     default:
                         mainMedia = webpage.file ?? webpage.image
                 }
                 
                 if let file = mainMedia as? TelegramMediaFile {
                     if let embedUrl = webpage.embedUrl, !embedUrl.isEmpty {
-                        mediaAndFlags = (webpage.image ?? file, [.preferMediaBeforeText])
+                        if automaticPlayback {
+                            mediaAndFlags = (file, [.preferMediaBeforeText])
+                        } else {
+                            mediaAndFlags = (webpage.image ?? file, [.preferMediaBeforeText])
+                        }
                     } else if webpage.type == "telegram_background" {
                         var patternColor: UIColor?
                         if let wallpaper = parseWallpaperUrl(webpage.url), case let .slug(_, _, color, intensity) = wallpaper {
@@ -326,7 +357,7 @@ final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContentNode {
                 }
             }
             
-            let (initialWidth, continueLayout) = contentNodeLayout(item.presentationData, item.controllerInteraction.automaticMediaDownloadSettings, item.associatedData, item.account, item.controllerInteraction, item.message, item.read, title, subtitle, text, entities, mediaAndFlags, badge, actionIcon, actionTitle, true, layoutConstants, constrainedSize)
+            let (initialWidth, continueLayout) = contentNodeLayout(item.presentationData, item.controllerInteraction.automaticMediaDownloadSettings, item.associatedData, item.context, item.controllerInteraction, item.message, item.read, title, subtitle, text, entities, mediaAndFlags, badge, actionIcon, actionTitle, true, layoutConstants, constrainedSize)
             
             let contentProperties = ChatMessageBubbleContentProperties(hidesSimpleAuthorHeader: false, headerSpacing: 8.0, hidesBackground: .never, forceFullCorners: false, forceAlignment: .none)
             
@@ -365,6 +396,10 @@ final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContentNode {
     
     override func animateInsertionIntoBubble(_ duration: Double) {
         self.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.25)
+    }
+    
+    override func playMediaWithSound() -> (() -> Void)? {
+        return self.contentNode.playMediaWithSound()
     }
     
     override func tapActionAtPoint(_ point: CGPoint, gesture: TapLongTapOrDoubleTapGesture) -> ChatMessageBubbleContentTapAction {
@@ -460,7 +495,7 @@ final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContentNode {
         }
     }
     
-    override func transitionNode(messageId: MessageId, media: Media) -> (ASDisplayNode, () -> UIView?)? {
+    override func transitionNode(messageId: MessageId, media: Media) -> (ASDisplayNode, () -> (UIView?, UIView?))? {
         if self.item?.message.id != messageId {
             return nil
         }

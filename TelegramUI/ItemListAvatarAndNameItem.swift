@@ -327,6 +327,8 @@ class ItemListAvatarAndNameInfoItemNode: ListViewItemNode, ItemListItemNode, Ite
         
         super.init(layerBacked: false, dynamicBounce: false)
         
+        self.isAccessibilityElement = true
+        
         self.addSubnode(self.avatarNode)
         self.addSubnode(self.activityIndicator)
         
@@ -419,6 +421,9 @@ class ItemListAvatarAndNameInfoItemNode: ListViewItemNode, ItemListItemNode, Ite
                     case .generic, .contact, .editSettings:
                         if let label = item.label {
                             statusText = label
+                            statusColor = item.theme.list.itemSecondaryTextColor
+                        } else if peer.flags.contains(.isSupport) {
+                            statusText = item.strings.Bot_GenericSupportStatus
                             statusColor = item.theme.list.itemSecondaryTextColor
                         } else if let _ = peer.botInfo {
                             statusText = item.strings.Bot_GenericBotStatus
@@ -520,6 +525,8 @@ class ItemListAvatarAndNameInfoItemNode: ListViewItemNode, ItemListItemNode, Ite
             return (layout, { [weak self] animated, synchronousLoads in
                 if let strongSelf = self {
                     strongSelf.item = item
+                    
+                    strongSelf.accessibilityLabel = displayTitle.composedTitle
                     
                     strongSelf.layoutWidthAndNeighbors = (params, neighbors)
                     
@@ -637,7 +644,7 @@ class ItemListAvatarAndNameInfoItemNode: ListViewItemNode, ItemListItemNode, Ite
                             overrideImage = AvatarNodeImageOverride.editAvatarIcon
                         }
                         
-                        strongSelf.avatarNode.setPeer(account: item.account, peer: peer, overrideImage: overrideImage, emptyColor: ignoreEmpty ? nil : item.theme.list.mediaPlaceholderColor, synchronousLoad: synchronousLoads)
+                        strongSelf.avatarNode.setPeer(account: item.account, theme: item.theme, peer: peer, overrideImage: overrideImage, emptyColor: ignoreEmpty ? nil : item.theme.list.mediaPlaceholderColor, synchronousLoad: synchronousLoads)
                     }
                     
                     let avatarFrame = CGRect(origin: CGPoint(x: params.leftInset + 15.0, y: avatarOriginY), size: CGSize(width: 66.0, height: 66.0))
@@ -935,10 +942,10 @@ class ItemListAvatarAndNameInfoItemNode: ListViewItemNode, ItemListItemNode, Ite
         }
     }
     
-    func avatarTransitionNode() -> ((ASDisplayNode, () -> UIView?), CGRect) {
+    func avatarTransitionNode() -> ((ASDisplayNode, () -> (UIView?, UIView?)), CGRect) {
         let avatarNode = self.avatarNode
         return ((self.avatarNode, { [weak avatarNode] in
-            return avatarNode?.view.snapshotContentTree(unhide: true)
+            return (avatarNode?.view.snapshotContentTree(unhide: true), nil)
         }), self.avatarNode.bounds)
     }
     

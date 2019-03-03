@@ -206,7 +206,15 @@ final class FFMpegMediaFrameSource: NSObject, MediaFrameSource {
             let preferSoftwareDecoding = self.preferSoftwareDecoding
             let fetchAutomatically = self.fetchAutomatically
             
+            let currentSemaphore = Atomic<Atomic<DispatchSemaphore?>?>(value: nil)
+            
+            disposable.set(ActionDisposable {
+                currentSemaphore.with({ $0 })?.with({ $0 })?.signal()
+            })
+            
             self.performWithContext { [weak self] context in
+                let _ = currentSemaphore.swap(context.currentSemaphore)
+                
                 context.initializeState(postbox: postbox, resourceReference: resourceReference, tempFilePath: tempFilePath, streamable: streamable, video: video, preferSoftwareDecoding: preferSoftwareDecoding, fetchAutomatically: fetchAutomatically)
                 
                 context.seek(timestamp: timestamp, completed: { streamDescriptions, timestamp in

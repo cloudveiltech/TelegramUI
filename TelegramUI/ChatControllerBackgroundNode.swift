@@ -71,7 +71,7 @@ final class ChatBackgroundNode: ASDisplayNode {
 private var backgroundImageForWallpaper: (TelegramWallpaper, Bool, UIImage)?
 private var serviceBackgroundColorForWallpaper: (TelegramWallpaper, UIColor)?
 
-func chatControllerBackgroundImage(wallpaper: TelegramWallpaper, postbox: Postbox) -> UIImage? {
+func chatControllerBackgroundImage(wallpaper: TelegramWallpaper, mediaBox: MediaBox) -> UIImage? {
     var backgroundImage: UIImage?
     if wallpaper == backgroundImageForWallpaper?.0, (wallpaper.settings?.blur ?? false) == backgroundImageForWallpaper?.1 {
         backgroundImage = backgroundImageForWallpaper?.2
@@ -90,21 +90,21 @@ func chatControllerBackgroundImage(wallpaper: TelegramWallpaper, postbox: Postbo
                 if let largest = largestImageRepresentation(representations) {
                     if settings.blur {
                         var image: UIImage?
-                        let _ = postbox.mediaBox.cachedResourceRepresentation(largest.resource, representation: CachedBlurredWallpaperRepresentation(), complete: true, fetch: true, attemptSynchronously: true).start(next: { data in
+                        let _ = mediaBox.cachedResourceRepresentation(largest.resource, representation: CachedBlurredWallpaperRepresentation(), complete: true, fetch: true, attemptSynchronously: true).start(next: { data in
                             if data.complete {
                                 image = UIImage(contentsOfFile: data.path)?.precomposed()
                             }
                         })
                         backgroundImage = image
                     }
-                    if backgroundImage == nil, let path = postbox.mediaBox.completedResourcePath(largest.resource) {
+                    if backgroundImage == nil, let path = mediaBox.completedResourcePath(largest.resource) {
                         backgroundImage = UIImage(contentsOfFile: path)?.precomposed()
                     }
                 }
             case let .file(file):
                 if file.isPattern, let color = file.settings.color, let intensity = file.settings.intensity {
                     var image: UIImage?
-                    let _ = postbox.mediaBox.cachedResourceRepresentation(file.file.resource, representation: CachedPatternWallpaperRepresentation(color: color, intensity: intensity), complete: true, fetch: true, attemptSynchronously: true).start(next: { data in
+                    let _ = mediaBox.cachedResourceRepresentation(file.file.resource, representation: CachedPatternWallpaperRepresentation(color: color, intensity: intensity), complete: true, fetch: true, attemptSynchronously: true).start(next: { data in
                         if data.complete {
                             image = UIImage(contentsOfFile: data.path)?.precomposed()
                         }
@@ -113,14 +113,14 @@ func chatControllerBackgroundImage(wallpaper: TelegramWallpaper, postbox: Postbo
                 } else {
                     if file.settings.blur {
                         var image: UIImage?
-                        let _ = postbox.mediaBox.cachedResourceRepresentation(file.file.resource, representation: CachedBlurredWallpaperRepresentation(), complete: true, fetch: true, attemptSynchronously: true).start(next: { data in
+                        let _ = mediaBox.cachedResourceRepresentation(file.file.resource, representation: CachedBlurredWallpaperRepresentation(), complete: true, fetch: true, attemptSynchronously: true).start(next: { data in
                             if data.complete {
                                 image = UIImage(contentsOfFile: data.path)?.precomposed()
                             }
                         })
                         backgroundImage = image
                     }
-                    if backgroundImage == nil, let path = postbox.mediaBox.completedResourcePath(file.file.resource) {
+                    if backgroundImage == nil, let path = mediaBox.completedResourcePath(file.file.resource) {
                         backgroundImage = UIImage(contentsOfFile: path)?.precomposed()
                     }
                 }
@@ -174,7 +174,7 @@ func serviceColor(with color: UIColor) -> UIColor {
     return color
 }
 
-func chatServiceBackgroundColor(wallpaper: TelegramWallpaper, postbox: Postbox) -> Signal<UIColor, NoError> {
+func chatServiceBackgroundColor(wallpaper: TelegramWallpaper, mediaBox: MediaBox) -> Signal<UIColor, NoError> {
     if wallpaper == serviceBackgroundColorForWallpaper?.0, let color = serviceBackgroundColorForWallpaper?.1 {
         return .single(color)
     } else {
@@ -186,8 +186,8 @@ func chatServiceBackgroundColor(wallpaper: TelegramWallpaper, postbox: Postbox) 
             case let .image(representations, _):
                 if let largest = largestImageRepresentation(representations) {
                     return Signal<UIColor, NoError> { subscriber in
-                        let fetch = postbox.mediaBox.fetchedResource(largest.resource, parameters: nil).start()
-                        let data = serviceColor(for: postbox.mediaBox.resourceData(largest.resource)).start(next: { next in
+                        let fetch = mediaBox.fetchedResource(largest.resource, parameters: nil).start()
+                        let data = serviceColor(for: mediaBox.resourceData(largest.resource)).start(next: { next in
                             subscriber.putNext(next)
                         }, completed: {
                             subscriber.putCompletion()
@@ -212,8 +212,8 @@ func chatServiceBackgroundColor(wallpaper: TelegramWallpaper, postbox: Postbox) 
                     }
                 } else {
                     return Signal<UIColor, NoError> { subscriber in
-                        let fetch = postbox.mediaBox.fetchedResource(file.file.resource, parameters: nil).start()
-                        let data = serviceColor(for: postbox.mediaBox.resourceData(file.file.resource)).start(next: { next in
+                        let fetch = mediaBox.fetchedResource(file.file.resource, parameters: nil).start()
+                        let data = serviceColor(for: mediaBox.resourceData(file.file.resource)).start(next: { next in
                             subscriber.putNext(next)
                         }, completed: {
                             subscriber.putCompletion()

@@ -499,8 +499,8 @@ private func selectivePrivacySettingsControllerEntries(presentationData: Present
     return entries
 }
 
-func selectivePrivacySettingsController(account: Account, kind: SelectivePrivacySettingsKind, current: SelectivePrivacySettings, callSettings: (SelectivePrivacySettings, VoiceCallSettings)? = nil, voipConfiguration: VoipConfiguration? = nil, callIntegrationAvailable: Bool? = nil, updated: @escaping (SelectivePrivacySettings, (SelectivePrivacySettings, VoiceCallSettings)?) -> Void) -> ViewController {
-    let strings = account.telegramApplicationContext.currentPresentationData.with { $0 }.strings
+func selectivePrivacySettingsController(context: AccountContext, kind: SelectivePrivacySettingsKind, current: SelectivePrivacySettings, callSettings: (SelectivePrivacySettings, VoiceCallSettings)? = nil, voipConfiguration: VoipConfiguration? = nil, callIntegrationAvailable: Bool? = nil, updated: @escaping (SelectivePrivacySettings, (SelectivePrivacySettings, VoiceCallSettings)?) -> Void) -> ViewController {
+    let strings = context.sharedContext.currentPresentationData.with { $0 }.strings
     
     var initialEnableFor = Set<PeerId>()
     var initialDisableFor = Set<PeerId>()
@@ -545,7 +545,7 @@ func selectivePrivacySettingsController(account: Account, kind: SelectivePrivacy
     let updateSettingsDisposable = MetaDisposable()
     actionsDisposable.add(updateSettingsDisposable)
     
-    let arguments = SelectivePrivacySettingsControllerArguments(account: account, updateType: { type in
+    let arguments = SelectivePrivacySettingsControllerArguments(account: context.account, updateType: { type in
         updateState {
             $0.withUpdatedSetting(type)
         }
@@ -561,16 +561,24 @@ func selectivePrivacySettingsController(account: Account, kind: SelectivePrivacy
         }
         var peerIds = Set<PeerId>()
         updateState { state in
-            peerIds = state.enableFor
+            switch target {
+            case .main:
+                peerIds = state.enableFor
+            case .callP2P:
+                if let callP2PEnableFor = state.callP2PEnableFor {
+                    peerIds = callP2PEnableFor
+                }
+            }
             return state
         }
-        pushControllerImpl?(selectivePrivacyPeersController(account: account, title: title, initialPeerIds: Array(peerIds), updated: { updatedPeerIds in
+        pushControllerImpl?(selectivePrivacyPeersController(context: context, title: title, initialPeerIds: Array(peerIds), updated: { updatedPeerIds in
             updateState { state in
                 switch target {
                     case .main:
                         return state.withUpdatedEnableFor(Set(updatedPeerIds)).withUpdatedDisableFor(state.disableFor.subtracting(Set(updatedPeerIds)))
                     case .callP2P:
-                        return state.withUpdatedCallP2PEnableFor(Set(updatedPeerIds)).withUpdatedCallP2PDisableFor(state.disableFor.subtracting(Set(updatedPeerIds)))
+                        let callP2PDisableFor = state.callP2PDisableFor ?? Set()
+                        return state.withUpdatedCallP2PEnableFor(Set(updatedPeerIds)).withUpdatedCallP2PDisableFor(callP2PDisableFor.subtracting(Set(updatedPeerIds)))
                 }
             }
         }))
@@ -586,16 +594,24 @@ func selectivePrivacySettingsController(account: Account, kind: SelectivePrivacy
         }
         var peerIds = Set<PeerId>()
         updateState { state in
-            peerIds = state.disableFor
+            switch target {
+                case .main:
+                    peerIds = state.disableFor
+                case .callP2P:
+                    if let callP2PDisableFor = state.callP2PDisableFor {
+                        peerIds = callP2PDisableFor
+                    }
+            }
             return state
         }
-        pushControllerImpl?(selectivePrivacyPeersController(account: account, title: title, initialPeerIds: Array(peerIds), updated: { updatedPeerIds in
+        pushControllerImpl?(selectivePrivacyPeersController(context: context, title: title, initialPeerIds: Array(peerIds), updated: { updatedPeerIds in
             updateState { state in
                 switch target {
                     case .main:
                         return state.withUpdatedDisableFor(Set(updatedPeerIds)).withUpdatedEnableFor(state.enableFor.subtracting(Set(updatedPeerIds)))
                     case .callP2P:
-                        return state.withUpdatedCallP2PDisableFor(Set(updatedPeerIds)).withUpdatedCallP2PEnableFor(state.enableFor.subtracting(Set(updatedPeerIds)))
+                        let callP2PEnableFor = state.callP2PEnableFor ?? Set()
+                        return state.withUpdatedCallP2PDisableFor(Set(updatedPeerIds)).withUpdatedCallP2PEnableFor(callP2PEnableFor.subtracting(Set(updatedPeerIds)))
                 }
             }
         }))
@@ -607,14 +623,14 @@ func selectivePrivacySettingsController(account: Account, kind: SelectivePrivacy
          updateState { state in
             return state.withUpdatedCallsIntegrationEnabled(enabled)
         }
-        let _ = updateVoiceCallSettingsSettingsInteractively(postbox: account.postbox, { settings in
+        let _ = updateVoiceCallSettingsSettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
             var settings = settings
             settings.enableSystemIntegration = enabled
             return settings
         }).start()
     })
     
-    let signal = combineLatest((account.applicationContext as! TelegramApplicationContext).presentationData, statePromise.get()) |> deliverOnMainQueue
+    let signal = combineLatest(context.sharedContext.presentationData, statePromise.get()) |> deliverOnMainQueue
         |> map { presentationData, state -> (ItemListControllerState, (ItemListNodeState<SelectivePrivacySettingsEntry>, SelectivePrivacySettingsEntry.ItemGenerationArguments)) in
             
             let leftNavigationButton = ItemListNavigationButton(content: .text(presentationData.strings.Common_Cancel), style: .regular, enabled: true, action: {
@@ -665,10 +681,10 @@ func selectivePrivacySettingsController(account: Account, kind: SelectivePrivacy
                                 type = .voiceCalls
                         }
                         
-                        let updateSettingsSignal = updateSelectiveAccountPrivacySettings(account: account, type: type, settings: settings)
+                        let updateSettingsSignal = updateSelectiveAccountPrivacySettings(account: context.account, type: type, settings: settings)
                         var updateCallP2PSettingsSignal: Signal<Void, NoError> = Signal.complete()
                         if let callP2PSettings = callP2PSettings {
-                            updateCallP2PSettingsSignal = updateSelectiveAccountPrivacySettings(account: account, type: .voiceCallsP2P, settings: callP2PSettings)
+                            updateCallP2PSettingsSignal = updateSelectiveAccountPrivacySettings(account: context.account, type: .voiceCallsP2P, settings: callP2PSettings)
                         }
                         
                         updateSettingsDisposable.set((combineLatest(updateSettingsSignal, updateCallP2PSettingsSignal) |> deliverOnMainQueue).start(completed: {
@@ -676,7 +692,7 @@ func selectivePrivacySettingsController(account: Account, kind: SelectivePrivacy
                                 return state.withUpdatedSaving(false)
                             }
                             if case .voiceCalls = kind, let dataSaving = state.callDataSaving, let callP2PSettings = callP2PSettings, let systemIntegrationEnabled = state.callIntegrationEnabled {
-                                updated(settings, (callP2PSettings, VoiceCallSettings(dataSaving: dataSaving, p2pMode: nil, enableSystemIntegration: systemIntegrationEnabled)))
+                                updated(settings, (callP2PSettings, VoiceCallSettings(dataSaving: dataSaving, enableSystemIntegration: systemIntegrationEnabled)))
                             } else {
                                 updated(settings, nil)
                             }
@@ -703,7 +719,7 @@ func selectivePrivacySettingsController(account: Account, kind: SelectivePrivacy
             actionsDisposable.dispose()
     }
     
-    let controller = ItemListController(account: account, state: signal)
+    let controller = ItemListController(context: context, state: signal)
     pushControllerImpl = { [weak controller] c in
         (controller?.navigationController as? NavigationController)?.pushViewController(c)
     }

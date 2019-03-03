@@ -335,6 +335,8 @@ class ContactsPeerItemNode: ItemListRevealOptionsItemNode {
         
         super.init(layerBacked: false, dynamicBounce: false, rotated: false, seeThrough: false)
         
+        self.isAccessibilityElement = true
+        
         self.addSubnode(self.backgroundNode)
         self.addSubnode(self.separatorNode)
         self.addSubnode(self.avatarNode)
@@ -620,6 +622,9 @@ class ContactsPeerItemNode: ItemListRevealOptionsItemNode {
                         if let strongSelf = strongSelf {
                             strongSelf.layoutParams = (item, params, first, last, firstWithHeader)
                             
+                            strongSelf.accessibilityLabel = titleAttributedString?.string
+                            strongSelf.accessibilityValue = statusAttributedString?.string
+                            
                             switch item.peer {
                                 case let .peer(peer, _):
                                     if let peer = peer {
@@ -627,7 +632,7 @@ class ContactsPeerItemNode: ItemListRevealOptionsItemNode {
                                         if peer.id == item.account.peerId, case .generalSearch = item.peerMode {
                                             overrideImage = .savedMessagesIcon
                                         }
-                                        strongSelf.avatarNode.setPeer(account: item.account, peer: peer, overrideImage: overrideImage, emptyColor: item.theme.list.mediaPlaceholderColor, synchronousLoad: synchronousLoads)
+                                        strongSelf.avatarNode.setPeer(account: item.account, theme: item.theme, peer: peer, overrideImage: overrideImage, emptyColor: item.theme.list.mediaPlaceholderColor, synchronousLoad: synchronousLoads)
                                     }
                                 case let .deviceContact(_, contact):
                                     let letters: [String]

@@ -124,6 +124,8 @@ private func ongoingDataSavingForType(_ type: VoiceCallDataSaving) -> OngoingCal
             return .cellular
         case .always:
             return .always
+        default:
+            return .never
     }
 }
 
@@ -192,16 +194,6 @@ final class OngoingCallContext {
             context.signalBarsChanged = { [weak self] signalBars in
                 self?.receptionPromise.set(.single(signalBars))
             }
-            context.callEnded = { debugLog, bytesSentWifi, bytesReceivedWifi, bytesSentMobile, bytesReceivedMobile in
-                let delta = NetworkUsageStatsConnectionsEntry(
-                    cellular: NetworkUsageStatsDirectionsEntry(
-                        incoming: bytesReceivedMobile,
-                        outgoing: bytesSentMobile),
-                    wifi: NetworkUsageStatsDirectionsEntry(
-                        incoming: bytesReceivedWifi,
-                        outgoing: bytesSentWifi))
-                let _ = updateAccountNetworkUsageStats(account: account, category: .call, delta: delta)
-            }
         }
         
         self.networkTypeDisposable = (updatedNetworkType
@@ -246,9 +238,22 @@ final class OngoingCallContext {
         }))
     }
     
-    func stop() {
+    func stop(callId: CallId? = nil, sendDebugLogs: Bool = false) {
         self.withContext { context in
-            context.stop()
+            context.stop { debugLog, bytesSentWifi, bytesReceivedWifi, bytesSentMobile, bytesReceivedMobile in
+                let delta = NetworkUsageStatsConnectionsEntry(
+                    cellular: NetworkUsageStatsDirectionsEntry(
+                        incoming: bytesReceivedMobile,
+                        outgoing: bytesSentMobile),
+                    wifi: NetworkUsageStatsDirectionsEntry(
+                        incoming: bytesReceivedWifi,
+                        outgoing: bytesSentWifi))
+                updateAccountNetworkUsageStats(account: self.account, category: .call, delta: delta)
+                
+                if let callId = callId, let debugLog = debugLog, sendDebugLogs {
+                    let _ = saveCallDebugLog(account: self.account, callId: callId, log: debugLog).start()
+                }
+            }
             let derivedState = context.getDerivedState()
             let _ = updateVoipDerivedStateInteractively(postbox: self.account.postbox, { _ in
                 return VoipDerivedState(data: derivedState)

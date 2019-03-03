@@ -35,6 +35,8 @@ class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
     private let statusNode: ChatMessageDateAndStatusNode
     private var linkHighlightingNode: LinkHighlightingNode?
     
+    private var textHighlightingNodes: [LinkHighlightingNode] = []
+    
     private var cachedChatMessageText: CachedChatMessageText?
     
     required init() {
@@ -66,7 +68,7 @@ class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
             return (contentProperties, nil, CGFloat.greatestFiniteMagnitude, { constrainedSize, position in
                 let message = item.message
                 
-                let incoming = item.message.effectivelyIncoming(item.account.peerId)
+                let incoming = item.message.effectivelyIncoming(item.context.account.peerId)
                 
                 var maxTextWidth = CGFloat.greatestFiniteMagnitude
                 for media in item.message.media {
@@ -352,7 +354,7 @@ class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                 if let current = self.linkHighlightingNode {
                     linkHighlightingNode = current
                 } else {
-                    linkHighlightingNode = LinkHighlightingNode(color: item.message.effectivelyIncoming(item.account.peerId) ? item.presentationData.theme.theme.chat.bubble.incomingLinkHighlightColor : item.presentationData.theme.theme.chat.bubble.outgoingLinkHighlightColor)
+                    linkHighlightingNode = LinkHighlightingNode(color: item.message.effectivelyIncoming(item.context.account.peerId) ? item.presentationData.theme.theme.chat.bubble.incomingLinkHighlightColor : item.presentationData.theme.theme.chat.bubble.outgoingLinkHighlightColor)
                     self.linkHighlightingNode = linkHighlightingNode
                     self.insertSubnode(linkHighlightingNode, belowSubnode: self.textNode)
                 }
@@ -383,5 +385,34 @@ class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
             }
         }
         return nil
+    }
+    
+    override func updateSearchTextHighlightState(text: String?) {
+        guard let item = self.item else {
+            return
+        }
+        let rectsSet: [[CGRect]]
+        if let text = text, !text.isEmpty {
+            rectsSet = self.textNode.textRangesRects(text: text)
+        } else {
+            rectsSet = []
+        }
+        for i in 0 ..< rectsSet.count {
+            let rects = rectsSet[i]
+            let textHighlightNode: LinkHighlightingNode
+            if self.textHighlightingNodes.count < i {
+                textHighlightNode = self.textHighlightingNodes[i]
+            } else {
+                textHighlightNode = LinkHighlightingNode(color: item.message.effectivelyIncoming(item.context.account.peerId) ? item.presentationData.theme.theme.chat.bubble.incomingTextHighlightColor : item.presentationData.theme.theme.chat.bubble.outgoingTextHighlightColor)
+                self.textHighlightingNodes.append(textHighlightNode)
+                self.insertSubnode(textHighlightNode, belowSubnode: self.textNode)
+            }
+            textHighlightNode.frame = self.textNode.frame
+            textHighlightNode.updateRects(rects)
+        }
+        for i in (rectsSet.count ..< self.textHighlightingNodes.count).reversed() {
+            self.textHighlightingNodes[i].removeFromSupernode()
+            self.textHighlightingNodes.remove(at: i)
+        }
     }
 }

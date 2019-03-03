@@ -5,19 +5,24 @@ import Postbox
 import TelegramCore
 import TelegramUIPrivateModule
 
-private func wallpaperDatas(account: Account, fileReference: FileMediaReference? = nil, representations: [ImageRepresentationWithReference], alwaysShowThumbnailFirst: Bool = false, thumbnail: Bool = false, autoFetchFullSize: Bool = false, synchronousLoad: Bool = false) -> Signal<(Data?, Data?, Bool), NoError> {
+private func wallpaperDatas(account: Account, accountManager: AccountManager, fileReference: FileMediaReference? = nil, representations: [ImageRepresentationWithReference], alwaysShowThumbnailFirst: Bool = false, thumbnail: Bool = false, autoFetchFullSize: Bool = false, synchronousLoad: Bool = false) -> Signal<(Data?, Data?, Bool), NoError> {
     if let smallestRepresentation = smallestImageRepresentation(representations.map({ $0.representation })), let largestRepresentation = largestImageRepresentation(representations.map({ $0.representation })), let smallestIndex = representations.index(where: { $0.representation == smallestRepresentation }), let largestIndex = representations.index(where: { $0.representation == largestRepresentation }) {
         
         let maybeFullSize: Signal<MediaResourceData, NoError>
         if thumbnail, let file = fileReference?.media {
-            maybeFullSize = account.postbox.mediaBox.cachedResourceRepresentation(file.resource, representation: CachedScaledImageRepresentation(size: CGSize(width: 720.0, height: 720.0), mode: .aspectFit), complete: false, fetch: false, attemptSynchronously: synchronousLoad)
-            |> mapToSignal { maybeData -> Signal<MediaResourceData, NoError> in
-                if maybeData.complete {
+            maybeFullSize = combineLatest(accountManager.mediaBox.cachedResourceRepresentation(file.resource, representation: CachedScaledImageRepresentation(size: CGSize(width: 720.0, height: 720.0), mode: .aspectFit), complete: false, fetch: false, attemptSynchronously: synchronousLoad),  account.postbox.mediaBox.cachedResourceRepresentation(file.resource, representation: CachedScaledImageRepresentation(size: CGSize(width: 720.0, height: 720.0), mode: .aspectFit), complete: false, fetch: false, attemptSynchronously: synchronousLoad))
+            |> mapToSignal { maybeSharedData, maybeData -> Signal<MediaResourceData, NoError> in
+                if maybeSharedData.complete {
+                    return .single(maybeSharedData)
+                } else if maybeData.complete {
                     return .single(maybeData)
                 } else {
-                    return account.postbox.mediaBox.resourceData(file.resource, attemptSynchronously: synchronousLoad)
-                    |> mapToSignal { maybeData -> Signal<MediaResourceData, NoError> in
-                        if maybeData.complete {
+                    return combineLatest(accountManager.mediaBox.resourceData(file.resource), account.postbox.mediaBox.resourceData(file.resource))
+                    |> mapToSignal { maybeSharedData, maybeData -> Signal<MediaResourceData, NoError> in
+                        if maybeSharedData.complete {
+                            return accountManager.mediaBox.cachedResourceRepresentation(file.resource, representation: CachedScaledImageRepresentation(size: CGSize(width: 720.0, height: 720.0), mode: .aspectFit), complete: false, fetch: true)
+                        }
+                        else if maybeData.complete {
                             return account.postbox.mediaBox.cachedResourceRepresentation(file.resource, representation: CachedScaledImageRepresentation(size: CGSize(width: 720.0, height: 720.0), mode: .aspectFit), complete: false, fetch: true)
                         } else {
                             return .single(maybeData)
@@ -27,16 +32,25 @@ private func wallpaperDatas(account: Account, fileReference: FileMediaReference?
             }
         } else {
             if thumbnail {
-                maybeFullSize = account.postbox.mediaBox.cachedResourceRepresentation(largestRepresentation.resource, representation: CachedScaledImageRepresentation(size: CGSize(width: 720.0, height: 720.0), mode: .aspectFit), complete: false, fetch: false)
-                |> mapToSignal { maybeData -> Signal<MediaResourceData, NoError> in
-                    if maybeData.complete {
+                maybeFullSize = combineLatest(accountManager.mediaBox.cachedResourceRepresentation(largestRepresentation.resource, representation: CachedScaledImageRepresentation(size: CGSize(width: 720.0, height: 720.0), mode: .aspectFit), complete: false, fetch: false), account.postbox.mediaBox.cachedResourceRepresentation(largestRepresentation.resource, representation: CachedScaledImageRepresentation(size: CGSize(width: 720.0, height: 720.0), mode: .aspectFit), complete: false, fetch: false))
+                |> mapToSignal { maybeSharedData, maybeData -> Signal<MediaResourceData, NoError> in
+                    if maybeSharedData.complete {
+                        return .single(maybeSharedData)
+                    } else if maybeData.complete {
                         return .single(maybeData)
                     } else {
                         return account.postbox.mediaBox.resourceData(largestRepresentation.resource)
                     }
                 }
             } else {
-                maybeFullSize = account.postbox.mediaBox.resourceData(largestRepresentation.resource)
+                maybeFullSize = combineLatest(accountManager.mediaBox.resourceData(largestRepresentation.resource), account.postbox.mediaBox.resourceData(largestRepresentation.resource))
+                |> map { sharedData, data -> MediaResourceData in
+                    if sharedData.complete {
+                        return sharedData
+                    } else {
+                        return data
+                    }
+                }
             }
         }
         let decodedThumbnailData = fileReference?.media.immediateThumbnailData.flatMap(decodeTinyThumbnail)
@@ -138,8 +152,8 @@ private func wallpaperDatas(account: Account, fileReference: FileMediaReference?
     }
 }
 
-func wallpaperImage(account: Account, fileReference: FileMediaReference? = nil, representations: [ImageRepresentationWithReference], alwaysShowThumbnailFirst: Bool = false, thumbnail: Bool = false, autoFetchFullSize: Bool = false, synchronousLoad: Bool = false) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
-    let signal = wallpaperDatas(account: account, fileReference: fileReference, representations: representations, alwaysShowThumbnailFirst: alwaysShowThumbnailFirst, thumbnail: thumbnail, autoFetchFullSize: autoFetchFullSize, synchronousLoad: synchronousLoad)
+func wallpaperImage(account: Account, accountManager: AccountManager, fileReference: FileMediaReference? = nil, representations: [ImageRepresentationWithReference], alwaysShowThumbnailFirst: Bool = false, thumbnail: Bool = false, autoFetchFullSize: Bool = false, synchronousLoad: Bool = false) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+    let signal = wallpaperDatas(account: account, accountManager: accountManager, fileReference: fileReference, representations: representations, alwaysShowThumbnailFirst: alwaysShowThumbnailFirst, thumbnail: thumbnail, autoFetchFullSize: autoFetchFullSize, synchronousLoad: synchronousLoad)
     
     return signal
     |> map { (thumbnailData, fullSizeData, fullSizeComplete) in
@@ -264,7 +278,7 @@ enum PatternWallpaperDrawMode {
     case screen
 }
 
-private func patternWallpaperDatas(account: Account, representations: [ImageRepresentationWithReference], mode: PatternWallpaperDrawMode, autoFetchFullSize: Bool = false) -> Signal<(Data?, Data?, Bool), NoError> {
+private func patternWallpaperDatas(account: Account, accountManager: AccountManager, representations: [ImageRepresentationWithReference], mode: PatternWallpaperDrawMode, autoFetchFullSize: Bool = false) -> Signal<(Data?, Data?, Bool), NoError> {
     if let smallestRepresentation = smallestImageRepresentation(representations.map({ $0.representation })), let largestRepresentation = largestImageRepresentation(representations.map({ $0.representation })), let smallestIndex = representations.index(where: { $0.representation == smallestRepresentation }), let largestIndex = representations.index(where: { $0.representation == largestRepresentation }) {
         
         let size: CGSize?
@@ -276,12 +290,15 @@ private func patternWallpaperDatas(account: Account, representations: [ImageRepr
             default:
                 size = nil
         }
-        let maybeFullSize = account.postbox.mediaBox.cachedResourceRepresentation(largestRepresentation.resource, representation: CachedPatternWallpaperMaskRepresentation(size: size), complete: false, fetch: false)
+        let maybeFullSize = combineLatest(accountManager.mediaBox.cachedResourceRepresentation(largestRepresentation.resource, representation: CachedPatternWallpaperMaskRepresentation(size: size), complete: false, fetch: false), account.postbox.mediaBox.cachedResourceRepresentation(largestRepresentation.resource, representation: CachedPatternWallpaperMaskRepresentation(size: size), complete: false, fetch: false))
         
         let signal = maybeFullSize
         |> take(1)
-        |> mapToSignal { maybeData -> Signal<(Data?, Data?, Bool), NoError> in
-            if maybeData.complete {
+        |> mapToSignal { maybeSharedData, maybeData -> Signal<(Data?, Data?, Bool), NoError> in
+            if maybeSharedData.complete {
+                let loadedData: Data? = try? Data(contentsOf: URL(fileURLWithPath: maybeSharedData.path), options: [])
+                return .single((nil, loadedData, true))
+            } else if maybeData.complete {
                 let loadedData: Data? = try? Data(contentsOf: URL(fileURLWithPath: maybeData.path), options: [])
                 return .single((nil, loadedData, true))
             } else {
@@ -292,6 +309,11 @@ private func patternWallpaperDatas(account: Account, representations: [ImageRepr
                     let fetchedDisposable = fetchedThumbnail.start()
                     let thumbnailDisposable = account.postbox.mediaBox.cachedResourceRepresentation(representations[smallestIndex].representation.resource, representation: CachedPatternWallpaperMaskRepresentation(size: size), complete: false, fetch: true).start(next: { next in
                         subscriber.putNext(next.size == 0 ? nil : try? Data(contentsOf: URL(fileURLWithPath: next.path), options: []))
+                        
+                        if next.complete, let data = try? Data(contentsOf: URL(fileURLWithPath: next.path), options: .mappedRead) {
+                            accountManager.mediaBox.storeResourceData(representations[smallestIndex].representation.resource.id, data: data)
+                            let _ = accountManager.mediaBox.cachedResourceRepresentation(representations[smallestIndex].representation.resource, representation: CachedPatternWallpaperMaskRepresentation(size: size), complete: false, fetch: true).start()
+                        }
                     }, error: subscriber.putError, completed: subscriber.putCompletion)
                     
                     return ActionDisposable {
@@ -304,6 +326,11 @@ private func patternWallpaperDatas(account: Account, representations: [ImageRepr
                     let fetchedFullSizeDisposable = fetchedFullSize.start()
                     let fullSizeDisposable = account.postbox.mediaBox.cachedResourceRepresentation(representations[largestIndex].representation.resource, representation: CachedPatternWallpaperMaskRepresentation(size: size), complete: false, fetch: true).start(next: { next in
                         subscriber.putNext((next.size == 0 ? nil : try? Data(contentsOf: URL(fileURLWithPath: next.path), options: []), next.complete))
+                        
+                        if next.complete, let data = try? Data(contentsOf: URL(fileURLWithPath: next.path), options: .mappedRead) {
+                            accountManager.mediaBox.storeResourceData(representations[largestIndex].representation.resource.id, data: data)
+                            let _ = accountManager.mediaBox.cachedResourceRepresentation(representations[largestIndex].representation.resource, representation: CachedPatternWallpaperMaskRepresentation(size: size), complete: false, fetch: true).start()
+                        }
                     }, error: subscriber.putError, completed: subscriber.putCompletion)
                     
                     return ActionDisposable {
@@ -326,9 +353,8 @@ private func patternWallpaperDatas(account: Account, representations: [ImageRepr
     }
 }
 
-func patternWallpaperImage(account: Account, representations: [ImageRepresentationWithReference], mode: PatternWallpaperDrawMode, autoFetchFullSize: Bool = false) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
-    
-    return patternWallpaperDatas(account: account, representations: representations, mode: mode, autoFetchFullSize: autoFetchFullSize)
+func patternWallpaperImage(account: Account, accountManager: AccountManager, representations: [ImageRepresentationWithReference], mode: PatternWallpaperDrawMode, autoFetchFullSize: Bool = false) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+    return patternWallpaperDatas(account: account, accountManager: accountManager, representations: representations, mode: mode, autoFetchFullSize: autoFetchFullSize)
     |> mapToSignal { (thumbnailData, fullSizeData, fullSizeComplete) in
         return patternWallpaperImageInternal(thumbnailData: thumbnailData, fullSizeData: fullSizeData, fullSizeComplete: fullSizeComplete, mode: mode)
     }

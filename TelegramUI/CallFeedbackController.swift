@@ -147,7 +147,7 @@ private enum CallFeedbackControllerEntry: ItemListNodeEntry {
         case let .reasonsHeader(theme, text):
             return ItemListSectionHeaderItem(theme: theme, text: text, sectionId: self.section)
         case let .reason(theme, reason, title, value):
-            return ItemListSwitchItem(theme: theme, title: title, value: value, sectionId: self.section, style: .blocks, updated: { value in
+            return ItemListSwitchItem(theme: theme, title: title, value: value, maximumNumberOfLines: 2, sectionId: self.section, style: .blocks, updated: { value in
                 arguments.toggleReason(reason, value)
             })
         case let .comment(theme, text, placeholder):
@@ -204,7 +204,7 @@ private func callFeedbackControllerEntries(theme: PresentationTheme, strings: Pr
     return entries
 }
 
-public func callFeedbackController(account: Account, callId: CallId, rating: Int) -> ViewController {
+public func callFeedbackController(sharedContext: SharedAccountContext, account: Account, callId: CallId, rating: Int, userInitiated: Bool) -> ViewController {
     let initialState = CallFeedbackState()
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -212,7 +212,6 @@ public func callFeedbackController(account: Account, callId: CallId, rating: Int
         statePromise.set(stateValue.modify { f($0) })
     }
 
-    var pushControllerImpl: ((ViewController) -> Void)?
     var presentControllerImpl: ((ViewController) -> Void)?
     var dismissImpl: (() -> Void)?
     
@@ -232,11 +231,10 @@ public func callFeedbackController(account: Account, callId: CallId, rating: Int
         updateState { $0.withUpdatedIncludeLogs(value) }
     })
     
-    let signal = combineLatest(account.telegramApplicationContext.presentationData, statePromise.get())
+    let signal = combineLatest(sharedContext.presentationData, statePromise.get())
         |> deliverOnMainQueue
         |> map { presentationData, state -> (ItemListControllerState, (ItemListNodeState<CallFeedbackControllerEntry>, CallFeedbackControllerEntry.ItemGenerationArguments)) in
-            
-            let leftNavigationButton = ItemListNavigationButton(content: .text(presentationData.strings.Common_Cancel), style: .bold, enabled: true, action: {
+            let leftNavigationButton = ItemListNavigationButton(content: .text(presentationData.strings.Common_Cancel), style: .regular, enabled: true, action: {
                 dismissImpl?()
             })
             let rightNavigationButton = ItemListNavigationButton(content: .text(presentationData.strings.CallFeedback_Send), style: .bold, enabled: true, action: {
@@ -255,7 +253,7 @@ public func callFeedbackController(account: Account, callId: CallId, rating: Int
                 }
                 comment.append(hashtags)
                 
-                let _ = rateCallAndSendLogs(account: account, callId: callId, starsCount: rating, comment: comment, includeLogs: state.includeLogs).start()
+                let _ = rateCallAndSendLogs(account: account, callId: callId, starsCount: rating, comment: comment, userInitiated: userInitiated, includeLogs: state.includeLogs).start()
                 dismissImpl?()
                 
                 presentControllerImpl?(OverlayStatusController(theme: presentationData.theme, strings: presentationData.strings, type: .starSuccess(presentationData.strings.CallFeedback_Success)))
@@ -267,10 +265,8 @@ public func callFeedbackController(account: Account, callId: CallId, rating: Int
             return (controllerState, (listState, arguments))
     }
     
-    let controller = ItemListController(account: account, state: signal)
-    pushControllerImpl = { [weak controller] c in
-        (controller?.navigationController as? NavigationController)?.pushViewController(c)
-    }
+    
+    let controller = ItemListController(sharedContext: sharedContext, state: signal)
     presentControllerImpl = { [weak controller] c in
         controller?.present(c, in: .window(.root))
     }

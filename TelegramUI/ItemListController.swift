@@ -93,17 +93,19 @@ final class ItemListControllerTabBarItem: Equatable {
     let title: String
     let image: UIImage?
     let selectedImage: UIImage?
+    let tintImages: Bool
     let badgeValue: String?
     
-    init(title: String, image: UIImage?, selectedImage: UIImage?, badgeValue: String? = nil) {
+    init(title: String, image: UIImage?, selectedImage: UIImage?, tintImages: Bool = true, badgeValue: String? = nil) {
         self.title = title
         self.image = image
         self.selectedImage = selectedImage
+        self.tintImages = tintImages
         self.badgeValue = badgeValue
     }
     
     static func ==(lhs: ItemListControllerTabBarItem, rhs: ItemListControllerTabBarItem) -> Bool {
-        return lhs.title == rhs.title && lhs.image === rhs.image && lhs.selectedImage === rhs.selectedImage && lhs.badgeValue == rhs.badgeValue
+        return lhs.title == rhs.title && lhs.image === rhs.image && lhs.selectedImage === rhs.selectedImage && lhs.tintImages == rhs.tintImages && lhs.badgeValue == rhs.badgeValue
     }
 }
 
@@ -141,6 +143,8 @@ class ItemListController<Entry: ItemListNodeEntry>: ViewController {
     
     private var theme: PresentationTheme
     private var strings: PresentationStrings
+    
+    private var validLayout: ContainerViewLayout?
     
     private var didPlayPresentationAnimation = false
     private(set) var didAppearOnce = false
@@ -195,11 +199,18 @@ class ItemListController<Entry: ItemListNodeEntry>: ViewController {
         }
     }
     
+    var previewItemWithTag: ((ItemListItemTag) -> UIViewController?)?
+    var commitPreview: ((UIViewController) -> Void)?
+    
     var willDisappear: ((Bool) -> Void)?
     
-    convenience init(account: Account, state: Signal<(ItemListControllerState, (ItemListNodeState<Entry>, Entry.ItemGenerationArguments)), NoError>, tabBarItem: Signal<ItemListControllerTabBarItem, NoError>? = nil) {
-        let presentationData = account.telegramApplicationContext.currentPresentationData.with { $0 }
-        self.init(theme: presentationData.theme, strings: presentationData.strings, updatedPresentationData: account.telegramApplicationContext.presentationData |> map { ($0.theme, $0.strings) }, state: state, tabBarItem: tabBarItem)
+    convenience init(context: AccountContext, state: Signal<(ItemListControllerState, (ItemListNodeState<Entry>, Entry.ItemGenerationArguments)), NoError>, tabBarItem: Signal<ItemListControllerTabBarItem, NoError>? = nil) {
+        self.init(sharedContext: context.sharedContext, state: state, tabBarItem: tabBarItem)
+    }
+    
+    convenience init(sharedContext: SharedAccountContext, state: Signal<(ItemListControllerState, (ItemListNodeState<Entry>, Entry.ItemGenerationArguments)), NoError>, tabBarItem: Signal<ItemListControllerTabBarItem, NoError>? = nil) {
+        let presentationData = sharedContext.currentPresentationData.with { $0 }
+        self.init(theme: presentationData.theme, strings: presentationData.strings, updatedPresentationData: sharedContext.presentationData |> map { ($0.theme, $0.strings) }, state: state, tabBarItem: tabBarItem)
     }
     
     init(theme: PresentationTheme, strings: PresentationStrings, updatedPresentationData: Signal<(theme: PresentationTheme, strings: PresentationStrings), NoError>, state: Signal<(ItemListControllerState, (ItemListNodeState<Entry>, Entry.ItemGenerationArguments)), NoError>, tabBarItem: Signal<ItemListControllerTabBarItem, NoError>?) {
@@ -388,7 +399,7 @@ class ItemListController<Entry: ItemListNodeEntry>: ViewController {
                 }
             }
         } |> map { ($0.theme, $1) }
-        let displayNode = ItemListControllerNode<Entry>(navigationBar: self.navigationBar!, updateNavigationOffset: { [weak self] offset in
+        let displayNode = ItemListControllerNode<Entry>(controller: self, navigationBar: self.navigationBar!, updateNavigationOffset: { [weak self] offset in
             if let strongSelf = self {
                 strongSelf.navigationOffset = offset
             }
@@ -408,6 +419,8 @@ class ItemListController<Entry: ItemListNodeEntry>: ViewController {
     
     override public func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
+        
+        self.validLayout = layout
         
         (self.displayNode as! ItemListControllerNode<Entry>).containerLayoutUpdated(layout, navigationBarHeight: self.navigationHeight, transition: transition)
     }
@@ -477,5 +490,46 @@ class ItemListController<Entry: ItemListNodeEntry>: ViewController {
     
     func afterLayout(_ f: @escaping () -> Void) {
         (self.displayNode as! ItemListControllerNode<Entry>).afterLayout(f)
+    }
+    
+    func previewingController(from sourceView: UIView, for location: CGPoint) -> (UIViewController, CGRect)? {
+        guard let layout = self.validLayout else {
+            return nil
+        }
+        
+        let boundsSize = self.view.bounds.size
+        let contentSize: CGSize
+        if let metrics = DeviceMetrics.forScreenSize(layout.size) {
+            contentSize = metrics.previewingContentSize(inLandscape: boundsSize.width > boundsSize.height)
+        } else {
+            contentSize = boundsSize
+        }
+        
+        var selectedNode: ItemListItemNode?
+        let listLocation = self.view.convert(location, to:  (self.displayNode as! ItemListControllerNode<Entry>).listNode.view)
+        (self.displayNode as! ItemListControllerNode<Entry>).listNode.forEachItemNode { itemNode in
+            if itemNode.frame.contains(listLocation), let itemNode = itemNode as? ItemListItemNode {
+                selectedNode = itemNode
+            }
+        }
+        if let selectedNode = selectedNode as? (ItemListItemNode & ListViewItemNode), let tag = selectedNode.tag {
+            var sourceRect = selectedNode.view.superview!.convert(selectedNode.frame, to: sourceView)
+            sourceRect.size.height -= UIScreenPixel
+            
+            if let controller = self.previewItemWithTag?(tag) {
+                if let controller = controller as? ContainableController {
+                    controller.containerLayoutUpdated(ContainerViewLayout(size: contentSize, metrics: LayoutMetrics(), intrinsicInsets: UIEdgeInsets(), safeInsets: UIEdgeInsets(), statusBarHeight: nil, inputHeight: nil, standardInputHeight: 216.0, inputHeightIsInteractivellyChanging: false, inVoiceOver: false), transition: .immediate)
+                }
+                return (controller, sourceRect)
+            } else {
+                return nil
+            }
+        } else {
+            return nil
+        }
+    }
+    
+    func previewingCommit(_ viewControllerToCommit: UIViewController) {
+        self.commitPreview?(viewControllerToCommit)
     }
 }
