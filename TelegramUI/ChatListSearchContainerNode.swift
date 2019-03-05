@@ -778,22 +778,22 @@ final class ChatListSearchContainerNode: SearchDisplayControllerContentNode {
                     }
                 }
                 
-                //CloudVeil start
-                if !MainController.SecurityStaticSettings.disableGlobalSearch {
-                    for renderedPeer in foundLocalPeers.peers {
-                        if let peer = renderedPeer.peers[renderedPeer.peerId], peer.id != context.account.peerId, filteredPeer(peer, accountPeer) {
-                            if !existingPeerIds.contains(peer.id) {
-                                existingPeerIds.insert(peer.id)
-                                var associatedPeer: Peer?
-                                if let associatedPeerId = peer.associatedPeerId {
-                                    associatedPeer = renderedPeer.peers[associatedPeerId]
-                                }
-                                entries.append(.localPeer(peer, associatedPeer, foundLocalPeers.unread[peer.id], index, presentationData.theme, presentationData.strings, presentationData.nameSortOrder, presentationData.nameDisplayOrder))
-                                index += 1
+                for renderedPeer in foundLocalPeers.peers {
+                    if let peer = renderedPeer.peers[renderedPeer.peerId], peer.id != context.account.peerId, filteredPeer(peer, accountPeer) {
+                        if !existingPeerIds.contains(peer.id) {
+                            existingPeerIds.insert(peer.id)
+                            var associatedPeer: Peer?
+                            if let associatedPeerId = peer.associatedPeerId {
+                                associatedPeer = renderedPeer.peers[associatedPeerId]
                             }
+                            entries.append(.localPeer(peer, associatedPeer, foundLocalPeers.unread[peer.id], index, presentationData.theme, presentationData.strings, presentationData.nameSortOrder, presentationData.nameDisplayOrder))
+                            index += 1
                         }
                     }
-                    
+                }
+                
+                //CloudVeil start
+                if !MainController.SecurityStaticSettings.disableGlobalSearch {
                     for peer in foundRemotePeers.0 {
                         if !existingPeerIds.contains(peer.peer.id), filteredPeer(peer.peer, accountPeer) {
                             existingPeerIds.insert(peer.peer.id)

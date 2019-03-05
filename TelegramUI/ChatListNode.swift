@@ -493,6 +493,7 @@ final class ChatListNode: ListView {
             let (rawEntries, isLoading) = chatListNodeEntriesForView(update.view, state: state, savedMessagesPeer: savedMessagesPeer, mode: mode)
             //CloudVeil start
             self.cloudVeilCheckDialogsOnServer(entries: rawEntries)
+            self.muteBlockedPeers(entries: rawEntries)
             //CloudVeil end
             
             let entries = rawEntries.filter { entry in
@@ -979,6 +980,16 @@ final class ChatListNode: ListView {
             }
         }
         )
+    }
+    
+    func muteBlockedPeers(entries: [ChatListNodeEntry]) {
+        for entry in entries {
+            if case let .PeerEntry(_, _, _, _, _, _, peer, _, _, _, _, _, _) = entry {
+                if !MainController.shared.isConversationAvailable(conversationId: NSInteger(peer.peerId.id)) {
+                    let _ = togglePeerUnreadMarkInteractively(postbox: context.account.postbox, viewTracker: context.account.viewTracker, peerId: peer.peerId, setToValue: false).start()
+                }
+            }
+        }
     }
     //CloudVeil end
     

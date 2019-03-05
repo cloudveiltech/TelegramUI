@@ -511,6 +511,9 @@ class ChatListItemNode: ItemListRevealOptionsItemNode {
                     } else {
                         unreadCount = (0, false, false)
                     }
+                    
+                   
+                    
                     if isAdValue {
                         notificationSettings = nil
                     } else {

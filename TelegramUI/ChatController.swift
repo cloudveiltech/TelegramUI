@@ -2674,10 +2674,17 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                         let mode: ChatTextInputMediaRecordingButtonMode
                         switch current.mediaRecordingMode {
                             case .audio:
-                                mode = .video
+                                //CloudVeil start
+                                if MainController.shared.isInChatVideoRecordingEnabled {
+                                  mode = .video
+                                } else {
+                                    mode = .audio
+                                }
+                                //CloudVeil end
                             case .video:
                                 mode = .audio
                         }
+                       
                         updatedMode = mode
                         return current.withUpdatedMediaRecordingMode(mode)
                     }
@@ -3375,7 +3382,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
         })
     }
     
-    private static func showBlockedPopup(peerView: Peer, controller: ViewController, presentationData: PresentationData) {
+    public static func showBlockedPopup(peerView: Peer, controller: ViewController, presentationData: PresentationData) {
         var type = ""
         if let peer = peerView as? TelegramChannel, case .group = peer.info {
             type = "group"
