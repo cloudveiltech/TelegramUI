@@ -197,7 +197,7 @@ public func loadBlockedImage() -> Signal<(Data?, Data?, Bool), NoError> {
 //CloudVeil end
 
 public func chatMessageSticker(postbox: Postbox, file: TelegramMediaFile, small: Bool, fetched: Bool = false, onlyFullSize: Bool = false, synchronousLoad: Bool = false) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
-    let signal
+    let signal: Signal<(Data?, Data?, Bool), NoError>
     if MainController.shared.disableStickers {
         signal = loadBlockedImage()
     } else {
