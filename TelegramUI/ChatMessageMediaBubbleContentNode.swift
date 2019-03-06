@@ -4,6 +4,7 @@ import Display
 import SwiftSignalKit
 import Postbox
 import TelegramCore
+import CloudVeilSecurityManager
 
 class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
     override var supportsMosaic: Bool {
@@ -80,7 +81,9 @@ class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
                     
                     if !item.message.containsSecretMedia {
                         if telegramFile.isAnimated {
-                            automaticPlayback = item.controllerInteraction.automaticMediaDownloadSettings.autoplayGifs
+                            //CloudVeil start
+                            automaticPlayback = item.controllerInteraction.automaticMediaDownloadSettings.autoplayGifs && !MainController.SecurityStaticSettings.disableAutoPlayGifs
+                            //CloudVeil end
                         } else if telegramFile.isVideo && item.controllerInteraction.automaticMediaDownloadSettings.autoplayVideos {
                             if case .full = automaticDownload {
                                 automaticPlayback = true

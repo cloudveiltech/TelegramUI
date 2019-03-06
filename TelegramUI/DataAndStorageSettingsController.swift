@@ -268,7 +268,8 @@ private enum DataAndStorageEntry: ItemListNodeEntry {
                 return ItemListSectionHeaderItem(theme: theme, text: text, sectionId: self.section)
             case let .autoplayGifs(theme, text, value):
                 //CloudVeil start
-                return ItemListSwitchItem(theme: theme, title: text, value: value, enabled: !MainController.SecurityStaticSettings.disableAutoPlayGifs, sectionId: self.section, style: .blocks, updated: { value in
+                let v = value && !MainController.SecurityStaticSettings.disableAutoPlayGifs
+                return ItemListSwitchItem(theme: theme, title: text, value: v, enabled: !MainController.SecurityStaticSettings.disableAutoPlayGifs, sectionId: self.section, style: .blocks, updated: { value in
                     arguments.toggleAutoplayGifs(value)
                 })
                 //CloudVeil end

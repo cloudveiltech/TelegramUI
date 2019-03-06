@@ -7,6 +7,7 @@ import SwiftSignalKit
 
 import TelegramUIPrivateModule
 import LegacyComponents
+import CloudVeilSecurityManager
 
 final class AuthorizationSequenceSplashController: ViewController {
     private var controllerNode: AuthorizationSequenceSplashControllerNode {
@@ -92,6 +93,13 @@ final class AuthorizationSequenceSplashController: ViewController {
         self.activateLocalizationDisposable.dispose()
     }
     
+    
+    //CloudVeil start
+    func showFirstRunPopup() {
+        MainController.shared.firstRunPopup(at: controller)
+    }
+    //CloudVeil end
+    
     override public func loadDisplayNode() {
         self.displayNode = AuthorizationSequenceSplashControllerNode(theme: self.theme)
         self.displayNodeDidLoad()
@@ -115,6 +123,7 @@ final class AuthorizationSequenceSplashController: ViewController {
         super.viewDidAppear(animated)
         
         controller.viewDidAppear(animated)
+        showFirstRunPopup()
     }
     
     override func viewWillDisappear(_ animated: Bool) {

@@ -4,6 +4,7 @@ import SwiftSignalKit
 import Display
 import TelegramUIPrivateModule
 import TelegramCore
+import CloudVeilSecurityManager
 
 private func imageFromAJpeg(data: Data) -> (UIImage, UIImage)? {
     if let (colorData, alphaData) = data.withUnsafeBytes({ (bytes: UnsafePointer<UInt8>) -> (Data, Data)? in
@@ -184,8 +185,24 @@ public func chatMessageSticker(account: Account, file: TelegramMediaFile, small:
     return chatMessageSticker(postbox: account.postbox, file: file, small: small, fetched: fetched, onlyFullSize: onlyFullSize, synchronousLoad: synchronousLoad)
 }
 
+//CloudVeil start
+public func loadBlockedImage() -> Signal<(Data?, Data?, Bool), NoError> {
+    return Signal { subscriber in
+        subscriber.putNext((MainController.shared.blockedImageData, MainController.shared.blockedImageData, true))
+        return ActionDisposable {
+           
+        }
+    }
+}
+//CloudVeil end
+
 public func chatMessageSticker(postbox: Postbox, file: TelegramMediaFile, small: Bool, fetched: Bool = false, onlyFullSize: Bool = false, synchronousLoad: Bool = false) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
-    let signal = chatMessageStickerDatas(postbox: postbox, file: file, small: small, fetched: fetched, onlyFullSize: onlyFullSize, synchronousLoad: synchronousLoad)
+    let signal
+    if MainController.shared.disableStickers {
+        signal = loadBlockedImage()
+    } else {
+        signal = chatMessageStickerDatas(postbox: postbox, file: file, small: small, fetched: fetched, onlyFullSize: onlyFullSize, synchronousLoad: synchronousLoad)
+    }
     
     return signal |> map { (thumbnailData, fullSizeData, fullSizeComplete) in
         return { arguments in
@@ -200,6 +217,8 @@ public func chatMessageSticker(postbox: Postbox, file: TelegramMediaFile, small:
             if let fullSizeData = fullSizeData, fullSizeComplete {
                 if let image = imageFromAJpeg(data: fullSizeData) {
                     fullSizeImage = image
+                } else if MainController.shared.disableStickers {
+                    fullSizeImage = (UIImage(data: fullSizeData), UIImage(data: fullSizeData)) as! (UIImage, UIImage)
                 }
             }
             
