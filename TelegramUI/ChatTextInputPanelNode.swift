@@ -5,6 +5,7 @@ import AsyncDisplayKit
 import Postbox
 import TelegramCore
 import MobileCoreServices
+import CloudVeilSecurityManager
 
 private let searchLayoutProgressImage = generateImage(CGSize(width: 22.0, height: 22.0), contextGenerator: { size, context in
     context.clear(CGRect(origin: CGPoint(), size: size))
@@ -750,6 +751,10 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate {
         } else {
             updateAccessoryButtons = true
         }
+        
+        //CloudVeil start
+        updateAccessoryButtons = updateAccessoryButtons && !MainController.shared.disableStickers
+        //CloudVeil end
         
         var removeAccessoryButtons: [AccessoryItemIconButton]?
         if updateAccessoryButtons {

@@ -5,6 +5,7 @@ import Postbox
 import TelegramCore
 import LegacyComponents
 import MtProtoKitDynamic
+import CloudVeilSecurityManager
 
 private let maximumNumberOfAccounts = 3
 
@@ -464,8 +465,12 @@ private func settingsEntries(account: Account, presentationData: PresentationDat
         
         entries.append(.savedMessages(presentationData.theme, SettingsItemIcons.savedMessages, presentationData.strings.Settings_SavedMessages))
         entries.append(.recentCalls(presentationData.theme, SettingsItemIcons.recentCalls, presentationData.strings.CallSettings_RecentCalls))
-        entries.append(.stickers(presentationData.theme, SettingsItemIcons.stickers, presentationData.strings.ChatSettings_Stickers, unreadTrendingStickerPacks == 0 ? "" : "\(unreadTrendingStickerPacks)", archivedPacks))
-        
+       
+        //CloudVeil start
+        if !MainController.shared.disableStickers {
+            entries.append(.stickers(presentationData.theme, SettingsItemIcons.stickers, presentationData.strings.ChatSettings_Stickers, unreadTrendingStickerPacks == 0 ? "" : "\(unreadTrendingStickerPacks)", archivedPacks))
+        }
+        //CloudVeil end
         let notificationsWarning = shouldDisplayNotificationsPermissionWarning(status: notificationsAuthorizationStatus, suppressed:  notificationsWarningSuppressed)
         entries.append(.notificationsAndSounds(presentationData.theme, SettingsItemIcons.notifications, presentationData.strings.Settings_NotificationsAndSounds, notifyExceptions, notificationsWarning))
         entries.append(.privacyAndSecurity(presentationData.theme, SettingsItemIcons.security, presentationData.strings.Settings_PrivacySettings))
@@ -691,7 +696,11 @@ public func settingsController(context: AccountContext, accountManager: AccountM
         
         let _ = (contextValue.get()
         |> deliverOnMainQueue
-        |> take(1)).start(next: { context in
+        |> take(1)).start(next: { context in            
+            if MainController.shared.disableProfilePhotoChange {
+                return
+            }
+            
             let _ = (context.account.postbox.loadedPeerWithId(context.account.peerId)
             |> take(1)
             |> deliverOnMainQueue).start(next: { peer in

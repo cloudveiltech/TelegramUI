@@ -4,6 +4,7 @@ import Display
 import SwiftSignalKit
 import Postbox
 import TelegramCore
+import CloudVeilSecurityManager
 
 private let nameFont = Font.medium(14.0)
 
@@ -550,15 +551,23 @@ class ChatMessageStickerItemNode: ChatMessageItemView {
                             }
                         
                             if let item = self.item, self.imageNode.frame.contains(location) {
-                                let _ = item.controllerInteraction.openMessage(item.message, .default)
+                                //CloudVeil start
+                                if !MainController.shared.disableStickers {
+                                    let _ = item.controllerInteraction.openMessage(item.message, .default)
+                                }
+                                //CloudVeil end
                                 return
                             }
                         
                             self.item?.controllerInteraction.clickThroughMessage()
                         case .longTap, .doubleTap:
-                            if let item = self.item, self.imageNode.frame.contains(location) {
-                                item.controllerInteraction.openMessageContextMenu(item.message, false, self, self.imageNode.frame)
+                            //CloudVeil start
+                            if !MainController.shared.disableStickers {
+                                if let item = self.item, self.imageNode.frame.contains(location) {
+                                    item.controllerInteraction.openMessageContextMenu(item.message, false, self, self.imageNode.frame)
+                                }
                             }
+                            //CloudVeil end
                         case .hold:
                             break
                     }

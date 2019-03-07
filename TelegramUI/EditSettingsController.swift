@@ -4,6 +4,7 @@ import SwiftSignalKit
 import Postbox
 import TelegramCore
 import LegacyComponents
+import CloudVeilSecurityManager
 
 private struct EditSettingsItemArguments {
     let context: AccountContext
@@ -176,6 +177,11 @@ private enum SettingsEntry: ItemListNodeEntry {
                 return ItemListTextItem(theme: theme, text: .plain(text), sectionId: self.section)
             case let .bioText(theme, currentText, placeholder):
                 return ItemListMultilineInputItem(theme: theme, text: currentText, placeholder: placeholder, maxLength: ItemListMultilineInputItemTextLimit(value: 70, display: true), sectionId: self.section, style: .blocks, textUpdated: { updatedText in
+                    //CloudVeil start
+                    if MainController.shared.disableBioChange {
+                        return
+                    }
+                    //CloudVeil end
                     arguments.updateBioText(currentText, updatedText)
                 }, action: {
                     
@@ -441,6 +447,11 @@ func editSettingsController(context: AccountContext, currentName: ItemListAvatar
         }
     }
     changeProfilePhotoImpl = { [weak controller] in
+        //CloudVeil start
+        if MainController.shared.disableProfilePhotoChange {
+            return
+        }
+        //CloudVeil end
         let _ = (context.account.postbox.transaction { transaction -> (Peer?, SearchBotsConfiguration) in
             return (transaction.getPeer(context.account.peerId), currentSearchBotsConfiguration(transaction: transaction))
         } |> deliverOnMainQueue).start(next: { peer, searchBotsConfiguration in

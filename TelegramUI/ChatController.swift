@@ -1017,6 +1017,15 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             }
         }, openCheckoutOrReceipt: { [weak self] messageId in
             if let strongSelf = self {
+                //CloudVeil start
+                if MainController.SecurityStaticSettings.disablePayments {
+                    let alert = standardTextAlertController(theme: AlertControllerTheme(presentationTheme: strongSelf.presentationData.theme), title: "CloudVeil", text: "This is disbled for your protection",
+                                                            actions: [TextAlertAction(type: .defaultAction, title: "Ok", action: {})])
+                    
+                    strongSelf.present(alert, in: .window(.root))
+                    return
+                }
+                //CloudVeil end
                 strongSelf.commitPurposefulAction()
                 if let message = strongSelf.chatDisplayNode.historyNode.messageInCurrentHistoryView(messageId) {
                     for media in message.media {

@@ -4,6 +4,7 @@ import SwiftSignalKit
 import Postbox
 import TelegramCore
 import LegacyComponents
+import CloudVeilSecurityManager
 
 private final class UserInfoControllerArguments {
     let account: Account
@@ -611,7 +612,11 @@ private func userInfoEntries(account: Account, presentationData: PresentationDat
         } else {
             title = presentationData.strings.Profile_About
         }
-        entries.append(UserInfoEntry.about(presentationData.theme, peer, title, about))
+        //CloudVeil start
+        if !MainController.shared.disableBio {
+            entries.append(UserInfoEntry.about(presentationData.theme, peer, title, about))
+        }
+        //CloudVeil end
     }
     
     if !isEditing {
@@ -833,6 +838,11 @@ public func userInfoController(context: AccountContext, peerId: PeerId, mode: Us
                 return
             }
             
+            //CloudVeil start
+            if MainController.shared.disableProfilePhoto {
+                return
+            }
+            //CloudVeil end
             let galleryController = AvatarGalleryController(context: context, peer: peer, remoteEntries: cachedAvatarEntries.with { $0 }, replaceRootController: { controller, ready in
             })
             hiddenAvatarRepresentationDisposable.set((galleryController.hiddenMedia |> deliverOnMainQueue).start(next: { entry in
