@@ -637,7 +637,11 @@ private func userInfoEntries(account: Account, presentationData: PresentationDat
             }
             
             if let peer = peer as? TelegramUser, peer.botInfo == nil {
-                entries.append(UserInfoEntry.startSecretChat(presentationData.theme, presentationData.strings.UserInfo_StartSecretChat))
+                //CloudVeil start
+                if MainController.shared.isSecretChatAvailable {
+                    entries.append(UserInfoEntry.startSecretChat(presentationData.theme, presentationData.strings.UserInfo_StartSecretChat))
+                }
+                //CloudVeil end
             }
         }
         

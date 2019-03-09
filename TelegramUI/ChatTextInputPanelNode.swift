@@ -752,10 +752,6 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate {
             updateAccessoryButtons = true
         }
         
-        //CloudVeil start
-        updateAccessoryButtons = updateAccessoryButtons && !MainController.shared.disableStickers
-        //CloudVeil end
-        
         var removeAccessoryButtons: [AccessoryItemIconButton]?
         if updateAccessoryButtons {
             var updatedButtons: [(ChatTextInputAccessoryItem, AccessoryItemIconButton)] = []
@@ -768,12 +764,20 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate {
                         break
                     }
                 }
-                if itemAndButton == nil {
-                    let button = AccessoryItemIconButton(item: item, theme: interfaceState.theme, strings: interfaceState.strings)
-                    button.addTarget(self, action: #selector(self.accessoryItemButtonPressed(_:)), for: [.touchUpInside])
-                    itemAndButton = (item, button)
+                //CloudVeil start
+                var isStickerPanelItem = false
+                if case .stickers(let _) = item {
+                    isStickerPanelItem = true
                 }
-                updatedButtons.append(itemAndButton!)
+                if !MainController.shared.disableStickers || !isStickerPanelItem {
+                    if itemAndButton == nil {
+                        let button = AccessoryItemIconButton(item: item, theme: interfaceState.theme, strings: interfaceState.strings)
+                        button.addTarget(self, action: #selector(self.accessoryItemButtonPressed(_:)), for: [.touchUpInside])
+                        itemAndButton = (item, button)
+                    }
+                    updatedButtons.append(itemAndButton!)
+                }
+                //CloudVeil end
             }
             for (_, button) in self.accessoryItemButtons {
                 if animatedTransition {

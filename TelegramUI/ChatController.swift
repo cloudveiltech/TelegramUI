@@ -3364,7 +3364,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
     //CloudVeil start
     public static func checkPeerIsAllowed(peerId: PeerId, controller: ViewController, account: Account, presentationData: PresentationData, callback: @escaping (Bool) -> ()) {
         let checked = MainController.shared.isConversationCheckedOnServer(conversationId: NSInteger(peerId.id), channelId: -NSInteger(peerId.id))
- 
+        
         let peerView = account.viewTracker.peerView(peerId)
         
         var disposable: Disposable? = nil
@@ -3383,7 +3383,10 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             let peerView = peerViewMainPeer(peerView)
             row.title = peerView?.displayTitle as! NSString
             
-            if let peer = peerView as? TelegramChannel, case .group = peer.info {
+            if peerId.namespace == Namespaces.Peer.SecretChat && !MainController.shared.isSecretChatAvailable {
+                isDialogAllowed = false
+                isUser = true
+            } else if let peer = peerView as? TelegramChannel, case .group = peer.info {
                 isDialogAllowed = MainController.shared.isGroupAvailable(groupID: NSInteger(-peerId.id))
                 isGroup = true
                 row.userName = (peer.username ?? "") as NSString
@@ -3431,7 +3434,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
     }
     
     public static func showBlockedPopup(peerView: Peer, controller: ViewController, presentationData: PresentationData) {
-        var type = ""
+        var type = "secret chat"
         if let peer = peerView as? TelegramChannel, case .group = peer.info {
             type = "group"
         } else if peerView.id.namespace == Namespaces.Peer.CloudGroup {
@@ -3463,7 +3466,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
         
         var title = peerView.displayTitle
         var userName = ""
-        var type = ""
+        var type = "secret chat"
         var conversationId = peerView.id.id
         if let peer = peerView as? TelegramChannel, case .group = peer.info {
             type = "group"
@@ -3478,8 +3481,10 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             title = peer.title
             userName = peer.username ?? ""
             conversationId = -conversationId
-        } else if let user = peerView as? TelegramUser, let _ = user.botInfo {
-            type = "bot"
+        } else if let user = peerView as? TelegramUser {
+            if let _ = user.botInfo {
+                type = "bot"
+            }
             userName = user.username ?? ""
         }
         
@@ -3869,6 +3874,17 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
         if saveInterfaceState {
             self.saveInterfaceState(includeScrollState: false)
         }
+        
+        //CloudVeil start
+        if let peer = self.presentationInterfaceState.renderedPeer?.peer as? TelegramSecretChat {
+            let timeout = peer.messageAutoremoveTimeout ?? 0
+            let minLength = Int32(MainController.shared.secretChatMinimumLength)
+            if timeout < minLength {
+                let value = minLength
+                setSecretChatMessageAutoremoveTimeoutInteractively(account: context.account, peerId: peer.id, timeout: value == 0 ? nil : value).start()
+            }
+        }
+        //CloudVeil end
     }
     
     private func updateItemNodesSelectionStates(animated: Bool) {
