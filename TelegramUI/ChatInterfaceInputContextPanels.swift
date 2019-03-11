@@ -146,6 +146,11 @@ func inputContextPanelForChatPresentationIntefaceState(_ chatPresentationInterfa
                 return nil
             }
         case let .contextRequestResult(_, results):
+            //CloudVeil start
+            if MainController.SecurityStaticSettings.disableInlineBots {
+                return nil
+            }
+            //CloudVeil end
             if let results = results, (!results.results.isEmpty || results.switchPeer != nil) {
                 switch results.presentation {
                     case .list:
