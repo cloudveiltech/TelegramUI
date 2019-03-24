@@ -6108,6 +6108,9 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
     }
     
     private func displayMediaRecordingTip() {
+        //CloudVeil disabled
+        return
+                
         let rect: CGRect? = self.chatDisplayNode.frameForInputActionButton()
         
         let updatedMode: ChatTextInputMediaRecordingButtonMode = self.presentationInterfaceState.interfaceState.mediaRecordingMode
