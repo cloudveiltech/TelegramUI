@@ -4,6 +4,7 @@ import Display
 import SwiftSignalKit
 import Postbox
 import TelegramCore
+import CloudVeilSecurityManager
 
 class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
     override var supportsMosaic: Bool {
@@ -85,6 +86,9 @@ class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
                             } else {
                                 automaticPlayback = item.context.account.postbox.mediaBox.completedResourcePath(telegramFile.resource) != nil
                             }
+                            //CloudVeil start
+                            automaticPlayback = automaticPlayback && !MainController.SecurityStaticSettings.disableAutoPlayGifs
+                            //CloudVeil end
                         } else if telegramFile.isVideo && item.controllerInteraction.automaticMediaDownloadSettings.autoplayVideos {
                             if case .full = automaticDownload {
                                 automaticPlayback = true

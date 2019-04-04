@@ -4,6 +4,7 @@ import AsyncDisplayKit
 import SwiftSignalKit
 import TelegramCore
 import Postbox
+import CloudVeilSecurityManager
 
 public struct ChatListNodePeersFilter: OptionSet {
     public var rawValue: Int32
@@ -490,6 +491,12 @@ final class ChatListNode: ListView {
         let chatListNodeViewTransition = combineLatest(savedMessagesPeer, chatListViewUpdate, self.statePromise.get()) |> mapToQueue { (savedMessagesPeer, update, state) -> Signal<ChatListNodeListViewTransition, NoError> in
             
             let (rawEntries, isLoading) = chatListNodeEntriesForView(update.view, state: state, savedMessagesPeer: savedMessagesPeer, mode: mode)
+            
+            //CloudVeil start
+            self.cloudVeilCheckDialogsOnServer(entries: rawEntries)
+            self.muteBlockedPeers(entries: rawEntries)
+            //CloudVeil end
+            
             let entries = rawEntries.filter { entry in
                 switch entry {
                 case let .PeerEntry(_, _, _, _, _, _, peer, _, _, _, _, _, _):
@@ -916,6 +923,69 @@ final class ChatListNode: ListView {
             }
         }
     }
+    
+    //CloudVeil start
+    func cloudVeilCheckDialogsOnServer(entries: [ChatListNodeEntry]) {
+        let peerView = self.context.account.viewTracker.peerView(self.context.account.peerId)
+        peerView.start(next: { peerView in
+            if let peer = peerViewMainPeer(peerView) as? TelegramUser {
+                TGUserController.shared.set(userID: NSInteger(peer.id.toInt64()))
+                TGUserController.shared.set(userName: (peer.username ?? "") as NSString)
+                TGUserController.shared.set(userPhoneNumber: (peer.phone ?? "") as NSString)
+                //collect peers
+                var bots = [TGRow]()
+                var groups = [TGRow]()
+                var channels = [TGRow]()
+                
+                for entry in entries {
+                    if case let .PeerEntry(_, _, _, _, _, _, peer, _, _, _, _, _, _) = entry {
+                        let title = peer.chatMainPeer?.displayTitle ?? "empty"
+                        
+                        var row = TGRow()
+                        row.objectID = NSInteger(peer.peerId.id)
+                        let groupId = -peer.peerId.id
+                        row.title = title as NSString
+                         
+                        var isGroup: Bool = false
+                        if let peer = peer.chatMainPeer as? TelegramChannel, case .group = peer.info {
+                            isGroup = true
+                            
+                            row.userName = (peer.username ?? "") as NSString
+                        } else if peer.peerId.namespace == Namespaces.Peer.CloudGroup {
+                            isGroup = true
+                        }
+                        if isGroup {
+                            row.objectID = NSInteger(groupId)
+                            groups.append(row)
+                        } else if let peer = peer.chatMainPeer as? TelegramChannel, case .broadcast = peer.info {
+                            row.objectID = NSInteger(groupId)
+                            row.userName = (peer.username ?? "") as NSString
+                            channels.append(row)
+                        } else if let user = peer.chatMainPeer as? TelegramUser, let botInfo = user.botInfo {
+                            row.userName = (user.username ?? "") as NSString
+                            bots.append(row)
+                        }
+                    }
+                }
+                
+                let json = MainController.shared.getSettings(groups: groups, bots: bots, channels: channels)
+                Logger.shared.log("CloudVeil sync", json)
+                print(json)
+            }
+        }
+        )
+    }
+    
+    func muteBlockedPeers(entries: [ChatListNodeEntry]) {
+        for entry in entries {
+            if case let .PeerEntry(_, _, _, _, _, _, peer, _, _, _, _, _, _) = entry {
+                if !MainController.shared.isConversationAvailable(conversationId: NSInteger(peer.peerId.id)) {
+                    let _ = togglePeerUnreadMarkInteractively(postbox: context.account.postbox, viewTracker: context.account.viewTracker, peerId: peer.peerId, setToValue: false).start()
+                }
+            }
+        }
+    }
+    //CloudVeil end
     
     deinit {
         self.chatListDisposable.dispose()

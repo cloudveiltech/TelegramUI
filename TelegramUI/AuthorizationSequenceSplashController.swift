@@ -7,6 +7,7 @@ import SwiftSignalKit
 
 import TelegramUIPrivateModule
 import LegacyComponents
+import CloudVeilSecurityManager
 
 final class AuthorizationSequenceSplashController: ViewController {
     private var controllerNode: AuthorizationSequenceSplashControllerNode {
@@ -24,6 +25,12 @@ final class AuthorizationSequenceSplashController: ViewController {
     
     private let suggestedLocalization = Promise<SuggestedLocalizationInfo?>()
     private let activateLocalizationDisposable = MetaDisposable()
+    
+    //CloudVeil start
+    func showFirstRunPopup() {
+        MainController.shared.firstRunPopup(at: controller)
+    }
+    //CloudVeil end
     
     init(accountManager: AccountManager, postbox: Postbox, network: Network, theme: PresentationTheme) {
         self.accountManager = accountManager
@@ -109,6 +116,9 @@ final class AuthorizationSequenceSplashController: ViewController {
         super.viewWillAppear(animated)
         self.addControllerIfNeeded()
         controller.viewWillAppear(false)
+        //CloudVeil start
+        showFirstRunPopup()
+        //CloudVeil end
     }
     
     override func viewDidAppear(_ animated: Bool) {

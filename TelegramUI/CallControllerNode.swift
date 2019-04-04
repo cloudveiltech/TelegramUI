@@ -4,6 +4,7 @@ import AsyncDisplayKit
 import Postbox
 import TelegramCore
 import SwiftSignalKit
+import CloudVeilSecurityManager
 
 import TelegramUIPrivateModule
 
@@ -154,7 +155,9 @@ final class CallControllerNode: ASDisplayNode {
     func updatePeer(accountPeer: Peer, peer: Peer, hasOther: Bool) {
         if !arePeersEqual(self.peer, peer) {
             self.peer = peer
-            if let peerReference = PeerReference(peer), !peer.profileImageRepresentations.isEmpty {
+            //CloudVeil start
+            if !MainController.shared.disableProfilePhoto, let peerReference = PeerReference(peer), !peer.profileImageRepresentations.isEmpty {
+            //CloudVeil end
                 let representations: [ImageRepresentationWithReference] = peer.profileImageRepresentations.map({ ImageRepresentationWithReference(representation: $0, reference: .avatar(peer: peerReference, resource: $0.resource)) })
                 self.imageNode.setSignal(chatAvatarGalleryPhoto(account: self.account, representations: representations, autoFetchFullSize: true))
                 self.dimNode.isHidden = false

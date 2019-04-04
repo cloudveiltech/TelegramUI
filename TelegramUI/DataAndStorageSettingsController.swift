@@ -4,6 +4,7 @@ import SwiftSignalKit
 import Postbox
 import TelegramCore
 import LegacyComponents
+import CloudVeilSecurityManager
 
 private final class DataAndStorageControllerArguments {
     let openStorageUsage: () -> Void
@@ -282,9 +283,12 @@ private enum DataAndStorageEntry: ItemListNodeEntry {
             case let .autoplayHeader(theme, text):
                 return ItemListSectionHeaderItem(theme: theme, text: text, sectionId: self.section)
             case let .autoplayGifs(theme, text, value):
-                return ItemListSwitchItem(theme: theme, title: text, value: value, sectionId: self.section, style: .blocks, updated: { value in
+                //CloudVeil start
+                let v = value && !MainController.SecurityStaticSettings.disableAutoPlayGifs
+                return ItemListSwitchItem(theme: theme, title: text, value: v, enabled: !MainController.SecurityStaticSettings.disableAutoPlayGifs, sectionId: self.section, style: .blocks, updated: { value in
                     arguments.toggleAutoplayGifs(value)
                 }, tag: DataAndStorageEntryTag.autoplayGifs)
+                //CloudVeil end
             case let .autoplayVideos(theme, text, value):
                 return ItemListSwitchItem(theme: theme, title: text, value: value, sectionId: self.section, style: .blocks, updated: { value in
                     arguments.toggleAutoplayVideos(value)
@@ -541,7 +545,10 @@ func dataAndStorageController(context: AccountContext, focusOnItemTag: DataAndSt
     }, toggleAutoplayGifs: { value in
         let _ = updateMediaDownloadSettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
             var settings = settings
-            settings.autoplayGifs = value
+            //CloudVeil start
+            settings.autoplayGifs = value && !MainController.SecurityStaticSettings.disableAutoPlayGifs
+            //CloudVeil end
+            
             return settings
         }).start()
     }, toggleAutoplayVideos: { value in

@@ -4,6 +4,7 @@ import SwiftSignalKit
 import Display
 import TelegramUIPrivateModule
 import TelegramCore
+import CloudVeilSecurityManager
 
 private func imageFromAJpeg(data: Data) -> (UIImage, UIImage)? {
     if let (colorData, alphaData) = data.withUnsafeBytes({ (bytes: UnsafePointer<UInt8>) -> (Data, Data)? in
@@ -263,8 +264,26 @@ public func chatMessageStickerPackThumbnail(postbox: Postbox, representation: Te
     }
 }
 
+//CloudVeil start
+public func loadBlockedImage() -> Signal<(Data?, Data?, Bool), NoError> {
+    return Signal { subscriber in
+        subscriber.putNext((MainController.shared.blockedImageData, MainController.shared.blockedImageData, true))
+        return ActionDisposable {
+            
+        }
+    }
+}
+//CloudVeil end
+
 public func chatMessageSticker(postbox: Postbox, file: TelegramMediaFile, small: Bool, fetched: Bool = false, onlyFullSize: Bool = false, synchronousLoad: Bool = false) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
-    let signal = chatMessageStickerDatas(postbox: postbox, file: file, small: small, fetched: fetched, onlyFullSize: onlyFullSize, synchronousLoad: synchronousLoad)
+    let signal: Signal<(Data?, Data?, Bool), NoError>
+    //CloudVeil start
+    if MainController.shared.disableStickers {
+        signal = loadBlockedImage()
+    } else {
+        signal = chatMessageStickerDatas(postbox: postbox, file: file, small: small, fetched: fetched, onlyFullSize: onlyFullSize, synchronousLoad: synchronousLoad)
+    }
+    //CloudVeil end
     
     return signal |> map { (thumbnailData, fullSizeData, fullSizeComplete) in
         return { arguments in

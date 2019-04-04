@@ -4,6 +4,7 @@ import UIKit
 import Postbox
 import TelegramCore
 import SwiftSignalKit
+import CloudVeilSecurityManager
 
 final class ComposeControllerNode: ASDisplayNode {
     let contactListNode: ContactListNode
@@ -34,17 +35,25 @@ final class ComposeControllerNode: ASDisplayNode {
         var openCreateNewSecretChatImpl: (() -> Void)?
         var openCreateNewChannelImpl: (() -> Void)?
         
-        self.contactListNode = ContactListNode(context: context, presentation: .single(.natural(options: [
+        //CloudVeil start
+        var options = [
             ContactListAdditionalOption(title: self.presentationData.strings.Compose_NewGroup, icon: .generic(UIImage(bundleImageName: "Contact List/CreateGroupActionIcon")!), action: {
                 openCreateNewGroupImpl?()
-            }),
-            ContactListAdditionalOption(title: self.presentationData.strings.Compose_NewEncryptedChat, icon: .generic(UIImage(bundleImageName: "Contact List/CreateSecretChatActionIcon")!), action: {
-                openCreateNewSecretChatImpl?()
-            }),
-            ContactListAdditionalOption(title: self.presentationData.strings.Compose_NewChannel, icon: .generic(UIImage(bundleImageName: "Contact List/CreateChannelActionIcon")!), action: {
-                openCreateNewChannelImpl?()
             })
-        ])), displayPermissionPlaceholder: false)
+        ]
+        
+        if MainController.shared.isSecretChatAvailable {
+            options.append( ContactListAdditionalOption(title: self.presentationData.strings.Compose_NewEncryptedChat, icon: .generic(UIImage(bundleImageName: "Contact List/CreateSecretChatActionIcon")!), action: {
+                openCreateNewSecretChatImpl?()
+            }))
+        }
+        
+        options.append(ContactListAdditionalOption(title: self.presentationData.strings.Compose_NewChannel, icon: .generic(UIImage(bundleImageName: "Contact List/CreateChannelActionIcon")!), action: {
+            openCreateNewChannelImpl?()
+        }))
+        
+        self.contactListNode = ContactListNode(context: context, presentation: .single(.natural(options: options)), displayPermissionPlaceholder: false)
+        //CloudVeil end
         
         super.init()
         

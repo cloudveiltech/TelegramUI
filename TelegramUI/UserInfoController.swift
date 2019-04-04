@@ -4,6 +4,7 @@ import SwiftSignalKit
 import Postbox
 import TelegramCore
 import LegacyComponents
+import CloudVeilSecurityManager
 
 private final class UserInfoControllerArguments {
     let account: Account
@@ -611,7 +612,11 @@ private func userInfoEntries(account: Account, presentationData: PresentationDat
         } else {
             title = presentationData.strings.Profile_About
         }
-        entries.append(UserInfoEntry.about(presentationData.theme, peer, title, about))
+        //CloudVeil start
+        if !MainController.shared.disableBio {
+            entries.append(UserInfoEntry.about(presentationData.theme, peer, title, about))
+        }
+        //CloudVeil end
     }
     
     if !isEditing {
@@ -632,7 +637,11 @@ private func userInfoEntries(account: Account, presentationData: PresentationDat
             }
             
             if let peer = peer as? TelegramUser, peer.botInfo == nil {
-                entries.append(UserInfoEntry.startSecretChat(presentationData.theme, presentationData.strings.UserInfo_StartSecretChat))
+                //CloudVeil start
+                if MainController.shared.isSecretChatAvailable {
+                    entries.append(UserInfoEntry.startSecretChat(presentationData.theme, presentationData.strings.UserInfo_StartSecretChat))
+                }
+                //CloudVeil end
             }
         }
         
@@ -832,6 +841,12 @@ public func userInfoController(context: AccountContext, peerId: PeerId, mode: Us
             if peer.profileImageRepresentations.isEmpty {
                 return
             }
+            
+            //CloudVeil start
+            if MainController.shared.disableProfilePhoto {
+                return
+            }
+            //CloudVeil end
             
             let galleryController = AvatarGalleryController(context: context, peer: peer, remoteEntries: cachedAvatarEntries.with { $0 }, replaceRootController: { controller, ready in
             })

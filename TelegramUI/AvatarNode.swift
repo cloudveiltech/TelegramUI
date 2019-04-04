@@ -5,6 +5,7 @@ import UIKit
 import Display
 import TelegramCore
 import SwiftSignalKit
+import CloudVeilSecurityManager
 
 private let savedMessagesIcon = UIImage(bundleImageName: "Avatar/SavedMessagesIcon")?.precomposed()
 
@@ -221,6 +222,12 @@ public final class AvatarNode: ASDisplayNode {
         } else if peer.restrictionText == nil {
             representation = peer.smallProfileImage
         }
+        //CloudVeil start
+        if MainController.shared.disableProfilePhoto {
+            representation = nil
+        }
+        //CloudVeil end
+        
         let updatedState: AvatarNodeState = .peerAvatar(peer.id, peer.displayLetters, representation)
         if updatedState != self.state {
             self.state = updatedState

@@ -557,9 +557,17 @@ public class ChatListController: TelegramController, KeyShortcutResponder, UIVie
                     if let layout = strongSelf.validLayout, case .regular = layout.metrics.widthClass {
                         scrollToEndIfExists = true
                     }
-                    navigateToChatController(navigationController: navigationController, context: strongSelf.context, chatLocation: .peer(peerId), scrollToEndIfExists: scrollToEndIfExists, animated: animated, completion: { [weak self] in
+                    //CloudVeil start
+                    ChatController.checkPeerIsAllowed(peerId: peerId, controller: strongSelf, account: strongSelf.context.account, presentationData: strongSelf.presentationData) { [weak self] result in
+                        if result {
+                            navigateToChatController(navigationController: navigationController, context: strongSelf.context, chatLocation: .peer(peerId), scrollToEndIfExists: scrollToEndIfExists, animated: animated, completion: { [weak self] in
+                                self?.chatListDisplayNode.chatListNode.clearHighlightAnimated(true)
+                            })
+                        }
                         self?.chatListDisplayNode.chatListNode.clearHighlightAnimated(true)
-                    })
+                    }
+                    //CloudVeil end
+                    
                 }
             }
         }

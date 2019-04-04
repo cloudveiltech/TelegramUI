@@ -5,6 +5,7 @@ import AsyncDisplayKit
 import Postbox
 import TelegramCore
 import MobileCoreServices
+import CloudVeilSecurityManager
 
 private let searchLayoutProgressImage = generateImage(CGSize(width: 22.0, height: 22.0), contextGenerator: { size, context in
     context.clear(CGRect(origin: CGPoint(), size: size))
@@ -770,12 +771,20 @@ class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDelegate {
                         break
                     }
                 }
-                if itemAndButton == nil {
-                    let button = AccessoryItemIconButton(item: item, theme: interfaceState.theme, strings: interfaceState.strings)
-                    button.addTarget(self, action: #selector(self.accessoryItemButtonPressed(_:)), for: [.touchUpInside])
-                    itemAndButton = (item, button)
+                //CloudVeil start
+                var isStickerPanelItem = false
+                if case .stickers(let _) = item {
+                    isStickerPanelItem = true
                 }
-                updatedButtons.append(itemAndButton!)
+                if !MainController.shared.disableStickers || !isStickerPanelItem {
+                    if itemAndButton == nil {
+                        let button = AccessoryItemIconButton(item: item, theme: interfaceState.theme, strings: interfaceState.strings)
+                        button.addTarget(self, action: #selector(self.accessoryItemButtonPressed(_:)), for: [.touchUpInside])
+                        itemAndButton = (item, button)
+                    }
+                    updatedButtons.append(itemAndButton!)
+                }
+                //CloudVeil end
             }
             for (_, button) in self.accessoryItemButtons {
                 if animatedTransition {
