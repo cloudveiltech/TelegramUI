@@ -4,7 +4,6 @@ import Display
 import SwiftSignalKit
 import Postbox
 import TelegramCore
-import CloudVeilSecurityManager
 
 class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
     override var supportsMosaic: Bool {
@@ -81,9 +80,11 @@ class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
                     
                     if !item.message.containsSecretMedia {
                         if telegramFile.isAnimated {
-                            //CloudVeil start
-                            automaticPlayback = item.controllerInteraction.automaticMediaDownloadSettings.autoplayGifs && !MainController.SecurityStaticSettings.disableAutoPlayGifs
-                            //CloudVeil end
+                            if case .full = automaticDownload {
+                                automaticPlayback = item.controllerInteraction.automaticMediaDownloadSettings.autoplayGifs
+                            } else {
+                                automaticPlayback = item.context.account.postbox.mediaBox.completedResourcePath(telegramFile.resource) != nil
+                            }
                         } else if telegramFile.isVideo && item.controllerInteraction.automaticMediaDownloadSettings.autoplayVideos {
                             if case .full = automaticDownload {
                                 automaticPlayback = true
@@ -121,7 +122,7 @@ class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
                     sizeCalculation = .unconstrained
             }
             
-            let (unboundSize, initialWidth, refineLayout) = interactiveImageLayout(item.context, item.presentationData.theme.theme, item.presentationData.strings, item.message, selectedMedia!, automaticDownload, item.associatedData.automaticDownloadPeerType, sizeCalculation, layoutConstants, contentMode)
+            let (unboundSize, initialWidth, refineLayout) = interactiveImageLayout(item.context, item.presentationData.theme.theme, item.presentationData.strings, item.presentationData.dateTimeFormat, item.message, selectedMedia!, automaticDownload, item.associatedData.automaticDownloadPeerType, sizeCalculation, layoutConstants, contentMode)
             
             let forceFullCorners = false
             let contentProperties = ChatMessageBubbleContentProperties(hidesSimpleAuthorHeader: true, headerSpacing: 7.0, hidesBackground: .emptyWallpaper, forceFullCorners: forceFullCorners, forceAlignment: .none)
@@ -319,7 +320,7 @@ class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
         return mediaHidden
     }
     
-    override func playMediaWithSound() -> (() -> Void)? {
+    override func playMediaWithSound() -> (() -> Void, Bool, Bool, Bool, ASDisplayNode?)? {
         return self.interactiveImageNode.playMediaWithSound()
     }
     

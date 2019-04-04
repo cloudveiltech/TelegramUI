@@ -7,7 +7,6 @@ import SwiftSignalKit
 
 import TelegramUIPrivateModule
 import LegacyComponents
-import CloudVeilSecurityManager
 
 final class AuthorizationSequenceSplashController: ViewController {
     private var controllerNode: AuthorizationSequenceSplashControllerNode {
@@ -67,7 +66,7 @@ final class AuthorizationSequenceSplashController: ViewController {
             })
         })
         
-        self.controller = RMIntroViewController(backroundColor: theme.list.plainBackgroundColor, primaryColor: theme.list.itemPrimaryTextColor, buttonColor: theme.auth.introStartButton, accentColor: theme.list.itemAccentColor, regularDotColor: theme.auth.introDotColor, highlightedDotColor: theme.list.itemPrimaryTextColor, suggestedLocalizationSignal: localizationSignal)
+        self.controller = RMIntroViewController(backgroundColor: theme.list.plainBackgroundColor, primaryColor: theme.list.itemPrimaryTextColor, buttonColor: theme.auth.introStartButton, accentColor: theme.list.itemAccentColor, regularDotColor: theme.auth.introDotColor, highlightedDotColor: theme.list.itemPrimaryTextColor, suggestedLocalizationSignal: localizationSignal)
         
         super.init(navigationBarPresentationData: nil)
         
@@ -93,13 +92,6 @@ final class AuthorizationSequenceSplashController: ViewController {
         self.activateLocalizationDisposable.dispose()
     }
     
-    
-    //CloudVeil start
-    func showFirstRunPopup() {
-        MainController.shared.firstRunPopup(at: controller)
-    }
-    //CloudVeil end
-    
     override public func loadDisplayNode() {
         self.displayNode = AuthorizationSequenceSplashControllerNode(theme: self.theme)
         self.displayNodeDidLoad()
@@ -123,7 +115,6 @@ final class AuthorizationSequenceSplashController: ViewController {
         super.viewDidAppear(animated)
         
         controller.viewDidAppear(animated)
-        showFirstRunPopup()
     }
     
     override func viewWillDisappear(_ animated: Bool) {

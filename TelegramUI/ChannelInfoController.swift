@@ -744,7 +744,8 @@ public func channelInfoController(context: AccountContext, peerId: PeerId) -> Vi
             pushControllerImpl?(controller)
         }
     }, openStats: {
-        var urlSignal = channelStatsUrl(postbox: context.account.postbox, network: context.account.network, peerId: peerId, params: "")
+        let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+        var urlSignal = channelStatsUrl(postbox: context.account.postbox, network: context.account.network, peerId: peerId, params: "", darkTheme: presentationData.theme.chatList.searchBarKeyboardColor.keyboardAppearance == .dark)
         
         var cancelImpl: (() -> Void)?
         let progressSignal = Signal<Never, NoError> { subscriber in
@@ -760,7 +761,7 @@ public func channelInfoController(context: AccountContext, peerId: PeerId) -> Vi
             }
         }
         |> runOn(Queue.mainQueue())
-        |> delay(0.15, queue: Queue.mainQueue())
+        |> delay(0.05, queue: Queue.mainQueue())
         let progressDisposable = progressSignal.start()
         
         urlSignal = urlSignal
@@ -778,7 +779,7 @@ public func channelInfoController(context: AccountContext, peerId: PeerId) -> Vi
             pushControllerImpl?(ChannelStatsController(context: context, url: url, peerId: peerId))
         }, error: { _ in
             let presentationData = context.sharedContext.currentPresentationData.with { $0 }
-            presentControllerImpl?(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: presentationData.theme), title: nil, text: presentationData.strings.Login_UnknownError, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), nil)
+            presentControllerImpl?(textAlertController(context: context, title: nil, text: presentationData.strings.Login_UnknownError, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), nil)
         }))
     }, openAdmins: {
         pushControllerImpl?(channelAdminsController(context: context, peerId: peerId))
@@ -977,8 +978,12 @@ public func channelInfoController(context: AccountContext, peerId: PeerId) -> Vi
         }
         for childController in tabController.controllers {
             if let chatListController = childController as? ChatListController {
-                navigationController.popToRoot(animated: true)
-                chatListController.schedulePeerChatRemoval(peer: RenderedPeer(peer: peer), deleteGloballyIfPossible: deleteGloballyIfPossible)
+                chatListController.maybeAskForPeerChatRemoval(peer: RenderedPeer(peer: peer), deleteGloballyIfPossible: deleteGloballyIfPossible, completion: { [weak navigationController] deleted in
+                    if deleted {
+                        navigationController?.popToRoot(animated: true)
+                    }
+                }, removed: {
+                })
                 break
             }
         }
@@ -1023,7 +1028,7 @@ public func channelInfoController(context: AccountContext, peerId: PeerId) -> Vi
                 return false
             })
             if let resultItemNode = resultItemNode {
-                let contextMenuController = ContextMenuController(actions: [ContextMenuAction(content: .text(presentationData.strings.Conversation_ContextMenuCopy), action: {
+                let contextMenuController = ContextMenuController(actions: [ContextMenuAction(content: .text(title: presentationData.strings.Conversation_ContextMenuCopy, accessibilityLabel: presentationData.strings.Conversation_ContextMenuCopy), action: {
                     UIPasteboard.general.string = text
                 })])
                 strongController.present(contextMenuController, in: .window(.root), with: ContextMenuControllerPresentationArguments(sourceNodeAndRect: { [weak resultItemNode] in

@@ -488,7 +488,7 @@ class ChatListItemNode: ItemListRevealOptionsItemNode {
         
         return { item, params, first, last, firstWithHeader, nextIsPinned in
             let account = item.account
-            let message: Message?
+            var message: Message?
             let itemPeer: RenderedPeer
             let combinedReadState: CombinedPeerReadState?
             let unreadCount: (count: Int32, unread: Bool, muted: Bool)
@@ -511,9 +511,6 @@ class ChatListItemNode: ItemListRevealOptionsItemNode {
                     } else {
                         unreadCount = (0, false, false)
                     }
-                    
-                   
-                    
                     if isAdValue {
                         notificationSettings = nil
                     } else {
@@ -547,6 +544,14 @@ class ChatListItemNode: ItemListRevealOptionsItemNode {
                         unreadCount = (0, false, false)
                     }
                     isAd = false
+            }
+            
+            if let messageValue = message {
+                for media in messageValue.media {
+                    if let media = media as? TelegramMediaAction, case .historyCleared = media.action {
+                        message = nil
+                    }
+                }
             }
             
             let theme = item.presentationData.theme.chatList
@@ -1239,6 +1244,13 @@ class ChatListItemNode: ItemListRevealOptionsItemNode {
             
             let badgeTextFrame = self.badgeTextNode.frame
             transition.updateFrame(node: self.badgeTextNode, frame: CGRect(origin: CGPoint(x: updatedBadgeBackgroundFrame.midX - badgeTextFrame.size.width / 2.0, y: badgeTextFrame.minY), size: badgeTextFrame.size))
+        }
+    }
+    
+    override func touchesToOtherItemsPrevented() {
+        super.touchesToOtherItemsPrevented()
+        if let item = self.item {
+            item.interaction.setPeerIdWithRevealedOptions(nil, nil)
         }
     }
     

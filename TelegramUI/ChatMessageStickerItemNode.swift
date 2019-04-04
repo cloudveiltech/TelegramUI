@@ -4,7 +4,6 @@ import Display
 import SwiftSignalKit
 import Postbox
 import TelegramCore
-import CloudVeilSecurityManager
 
 private let nameFont = Font.medium(14.0)
 
@@ -509,7 +508,12 @@ class ChatMessageStickerItemNode: ChatMessageItemView {
                                     } else {
                                         navigate = .info
                                     }
-                                    item.controllerInteraction.openPeer(item.effectiveAuthorId ?? author.id, navigate, item.message)
+                                    
+                                    if item.effectiveAuthorId?.namespace == Namespaces.Peer.Empty {
+                                        item.controllerInteraction.displayMessageTooltip(item.content.firstMessage.id,  item.presentationData.strings.Conversation_ForwardAuthorHiddenTooltip, self, avatarNode.frame)
+                                    } else {
+                                        item.controllerInteraction.openPeer(item.effectiveAuthorId ?? author.id, navigate, item.message)
+                                    }
                                 }
                                 return
                             }
@@ -551,23 +555,15 @@ class ChatMessageStickerItemNode: ChatMessageItemView {
                             }
                         
                             if let item = self.item, self.imageNode.frame.contains(location) {
-                                //CloudVeil start
-                                if !MainController.shared.disableStickers {
-                                    let _ = item.controllerInteraction.openMessage(item.message, .default)
-                                }
-                                //CloudVeil end
+                                let _ = item.controllerInteraction.openMessage(item.message, .default)
                                 return
                             }
                         
                             self.item?.controllerInteraction.clickThroughMessage()
                         case .longTap, .doubleTap:
-                            //CloudVeil start
-                            if !MainController.shared.disableStickers {
-                                if let item = self.item, self.imageNode.frame.contains(location) {
-                                    item.controllerInteraction.openMessageContextMenu(item.message, false, self, self.imageNode.frame)
-                                }
+                            if let item = self.item, self.imageNode.frame.contains(location) {
+                                item.controllerInteraction.openMessageContextMenu(item.message, false, self, self.imageNode.frame)
                             }
-                            //CloudVeil end
                         case .hold:
                             break
                     }

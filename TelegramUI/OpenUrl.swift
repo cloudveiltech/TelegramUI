@@ -627,7 +627,6 @@ public func openExternalUrl(context: AccountContext, urlContext: OpenURLContext 
                         return
                     }
                     //CloudVeil end
-                    
                     if let window = navigationController?.view.window {
                         let controller = SFSafariViewController(url: parsedUrl)
                         if #available(iOSApplicationExtension 10.0, *) {

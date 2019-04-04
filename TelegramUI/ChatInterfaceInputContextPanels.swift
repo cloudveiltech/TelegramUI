@@ -1,6 +1,6 @@
 import Foundation
 import TelegramCore
-import CloudVeilSecurityManager
+
 /*
  case stickers([FoundStickerItem])
  case hashtags([String])
@@ -76,11 +76,6 @@ func inputContextPanelForChatPresentationIntefaceState(_ chatPresentationInterfa
     
     switch inputQueryResult {
         case let .stickers(results):
-            //CloudVeil start
-            if MainController.shared.disableStickers {
-                return nil
-            }
-            //CloudVeil end
             if !results.isEmpty {
                 if let currentPanel = currentPanel as? HorizontalStickersChatContextPanelNode {
                     currentPanel.updateResults(results.map({ $0.file }))
@@ -146,11 +141,6 @@ func inputContextPanelForChatPresentationIntefaceState(_ chatPresentationInterfa
                 return nil
             }
         case let .contextRequestResult(_, results):
-            //CloudVeil start
-            if MainController.SecurityStaticSettings.disableInlineBots {
-                return nil
-            }
-            //CloudVeil end
             if let results = results, (!results.results.isEmpty || results.switchPeer != nil) {
                 switch results.presentation {
                     case .list:

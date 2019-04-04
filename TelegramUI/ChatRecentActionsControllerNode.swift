@@ -180,9 +180,9 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
             self?.openMessageContextMenu(message: message, selectAll: selectAll, node: node, frame: frame)
         }, navigateToMessage: { _, _ in }, clickThroughMessage: { }, toggleMessagesSelection: { _, _ in }, sendMessage: { _ in }, sendSticker: { _, _ in }, sendGif: { _ in }, requestMessageActionCallback: { _, _, _ in }, activateSwitchInline: { _, _ in }, openUrl: { [weak self] url, _, _ in
             self?.openUrl(url)
-        }, shareCurrentLocation: {}, shareAccountContact: {}, sendBotCommand: { _, _ in }, openInstantPage: { [weak self] message in
+        }, shareCurrentLocation: {}, shareAccountContact: {}, sendBotCommand: { _, _ in }, openInstantPage: { [weak self] message, associatedData in
             if let strongSelf = self, let navigationController = strongSelf.getNavigationController() {
-                openChatInstantPage(context: strongSelf.context, message: message, navigationController: navigationController)
+                openChatInstantPage(context: strongSelf.context, message: message, sourcePeerType: associatedData?.automaticDownloadPeerType, navigationController: navigationController)
             }
         }, openWallpaper: { [weak self] message in
             if let strongSelf = self{
@@ -349,11 +349,12 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
                     strongSelf.presentController(actionSheet, nil)
                 }
             }
-        }, openCheckoutOrReceipt: { _ in }, openSearch: { }, setupReply: { _ in
+        }, openCheckoutOrReceipt: { _ in
+        }, openSearch: {
+        }, setupReply: { _ in
         }, canSetupReply: { _ in
             return false
         }, navigateToFirstDateMessage: { _ in
-            
         }, requestRedeliveryOfFailedMessages: { _ in
         }, addContact: { _ in
         }, rateCall: { _, _ in
@@ -362,6 +363,7 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
             if let strongSelf = self {
                 strongSelf.context.sharedContext.applicationBindings.openAppStorePage()
             }
+        }, displayMessageTooltip: { _, _, _, _ in
         }, requestMessageUpdate: { _ in
         }, cancelInteractiveKeyboardGestures: {
         }, automaticMediaDownloadSettings: self.automaticMediaDownloadSettings,
@@ -656,7 +658,7 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
     private func openMessageContextMenu(message: Message, selectAll: Bool, node: ASDisplayNode, frame: CGRect) {
         var actions: [ContextMenuAction] = []
             if !message.text.isEmpty {
-            actions.append(ContextMenuAction(content: .text(self.presentationData.strings.Conversation_ContextMenuCopy), action: {
+                actions.append(ContextMenuAction(content: .text(title: self.presentationData.strings.Conversation_ContextMenuCopy, accessibilityLabel: self.presentationData.strings.Conversation_ContextMenuCopy), action: {
                 UIPasteboard.general.string = message.text
             }))
         }
@@ -684,7 +686,7 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
             }
             
             if canBan {
-                actions.append(ContextMenuAction(content: .text(self.presentationData.strings.Conversation_ContextMenuBan), action: { [weak self] in
+                actions.append(ContextMenuAction(content: .text(title: self.presentationData.strings.Conversation_ContextMenuBan, accessibilityLabel: self.presentationData.strings.Conversation_ContextMenuBan), action: { [weak self] in
                     if let strongSelf = self {
                         strongSelf.banDisposables.set((fetchChannelParticipant(account: strongSelf.context.account, peerId: strongSelf.peer.id, participantId: author.id)
                         |> deliverOnMainQueue).start(next: { participant in
@@ -756,7 +758,7 @@ final class ChatRecentActionsControllerNode: ViewControllerTracingNode {
                     case let .stickerPack(name):
                         strongSelf.presentController(StickerPackPreviewController(context: strongSelf.context, stickerPack: .name(name), parentNavigationController: strongSelf.getNavigationController()), nil)
                     case let .instantView(webpage, anchor):
-                        strongSelf.pushController(InstantPageController(context: strongSelf.context, webPage: webpage, anchor: anchor))
+                        strongSelf.pushController(InstantPageController(context: strongSelf.context, webPage: webpage, sourcePeerType: .channel, anchor: anchor))
                     case let .join(link):
                         strongSelf.presentController(JoinLinkPreviewController(context: strongSelf.context, link: link, navigateToPeer: { peerId in
                             if let strongSelf = self {

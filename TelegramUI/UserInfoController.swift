@@ -4,7 +4,6 @@ import SwiftSignalKit
 import Postbox
 import TelegramCore
 import LegacyComponents
-import CloudVeilSecurityManager
 
 private final class UserInfoControllerArguments {
     let account: Account
@@ -612,11 +611,7 @@ private func userInfoEntries(account: Account, presentationData: PresentationDat
         } else {
             title = presentationData.strings.Profile_About
         }
-        //CloudVeil start
-        if !MainController.shared.disableBio {
-            entries.append(UserInfoEntry.about(presentationData.theme, peer, title, about))
-        }
-        //CloudVeil end
+        entries.append(UserInfoEntry.about(presentationData.theme, peer, title, about))
     }
     
     if !isEditing {
@@ -637,11 +632,7 @@ private func userInfoEntries(account: Account, presentationData: PresentationDat
             }
             
             if let peer = peer as? TelegramUser, peer.botInfo == nil {
-                //CloudVeil start
-                if MainController.shared.isSecretChatAvailable {
-                    entries.append(UserInfoEntry.startSecretChat(presentationData.theme, presentationData.strings.UserInfo_StartSecretChat))
-                }
-                //CloudVeil end
+                entries.append(UserInfoEntry.startSecretChat(presentationData.theme, presentationData.strings.UserInfo_StartSecretChat))
             }
         }
         
@@ -800,7 +791,7 @@ public func userInfoController(context: AccountContext, peerId: PeerId, mode: Us
             
             if let cachedUserData = view.1 as? CachedUserData, cachedUserData.callsPrivate {
                 let presentationData = context.sharedContext.currentPresentationData.with { $0 }
-                presentControllerImpl?(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: presentationData.theme), title: presentationData.strings.Call_ConnectionErrorTitle, text: presentationData.strings.Call_PrivacyErrorMessage(peer.compactDisplayTitle).0, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), nil)
+                presentControllerImpl?(textAlertController(context: context, title: presentationData.strings.Call_ConnectionErrorTitle, text: presentationData.strings.Call_PrivacyErrorMessage(peer.compactDisplayTitle).0, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), nil)
                 return
             }
             
@@ -814,7 +805,7 @@ public func userInfoController(context: AccountContext, peerId: PeerId, mode: Us
                         return (transaction.getPeer(peer.id), transaction.getPeer(currentPeerId))
                         } |> deliverOnMainQueue).start(next: { peer, current in
                             if let peer = peer, let current = current {
-                                presentControllerImpl?(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: presentationData.theme), title: presentationData.strings.Call_CallInProgressTitle, text: presentationData.strings.Call_CallInProgressMessage(current.compactDisplayTitle, peer.compactDisplayTitle).0, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_Cancel, action: {}), TextAlertAction(type: .genericAction, title: presentationData.strings.Common_OK, action: {
+                                presentControllerImpl?(textAlertController(context: context, title: presentationData.strings.Call_CallInProgressTitle, text: presentationData.strings.Call_CallInProgressMessage(current.compactDisplayTitle, peer.compactDisplayTitle).0, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_Cancel, action: {}), TextAlertAction(type: .genericAction, title: presentationData.strings.Common_OK, action: {
                                     let _ = context.sharedContext.callManager?.requestCall(account: context.account, peerId: peer.id, endCurrentIfAny: true)
                                 })]), nil)
                             }
@@ -842,11 +833,6 @@ public func userInfoController(context: AccountContext, peerId: PeerId, mode: Us
                 return
             }
             
-            //CloudVeil start
-            if MainController.shared.disableProfilePhoto {
-                return
-            }
-            //CloudVeil end
             let galleryController = AvatarGalleryController(context: context, peer: peer, remoteEntries: cachedAvatarEntries.with { $0 }, replaceRootController: { controller, ready in
             })
             hiddenAvatarRepresentationDisposable.set((galleryController.hiddenMedia |> deliverOnMainQueue).start(next: { entry in
@@ -1270,7 +1256,7 @@ public func userInfoController(context: AccountContext, peerId: PeerId, mode: Us
                 }, error: { _ in
                     if let controller = controller {
                         let presentationData = context.sharedContext.currentPresentationData.with { $0 }
-                        controller.present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: presentationData.theme), title: nil, text: presentationData.strings.Login_UnknownError, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), in: .window(.root))
+                        controller.present(textAlertController(context: context, title: nil, text: presentationData.strings.Login_UnknownError, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), in: .window(.root))
                     }
                 }))
             }
@@ -1342,7 +1328,7 @@ public func userInfoController(context: AccountContext, peerId: PeerId, mode: Us
                 return false
             })
             if let resultItemNode = resultItemNode {
-                let contextMenuController = ContextMenuController(actions: [ContextMenuAction(content: .text(presentationData.strings.Conversation_ContextMenuCopy), action: {
+                let contextMenuController = ContextMenuController(actions: [ContextMenuAction(content: .text(title: presentationData.strings.Conversation_ContextMenuCopy, accessibilityLabel: presentationData.strings.Conversation_ContextMenuCopy), action: {
                     UIPasteboard.general.string = text
                 })])
                 strongController.present(contextMenuController, in: .window(.root), with: ContextMenuControllerPresentationArguments(sourceNodeAndRect: { [weak resultItemNode] in
@@ -1373,7 +1359,7 @@ public func userInfoController(context: AccountContext, peerId: PeerId, mode: Us
                 return false
             })
             if let resultItemNode = resultItemNode {
-                let contextMenuController = ContextMenuController(actions: [ContextMenuAction(content: .text(presentationData.strings.Conversation_ContextMenuCopy), action: {
+                let contextMenuController = ContextMenuController(actions: [ContextMenuAction(content: .text(title: presentationData.strings.Conversation_ContextMenuCopy, accessibilityLabel: presentationData.strings.Conversation_ContextMenuCopy), action: {
                     UIPasteboard.general.string = value
                 })])
                 strongController.present(contextMenuController, in: .window(.root), with: ContextMenuControllerPresentationArguments(sourceNodeAndRect: { [weak resultItemNode] in
@@ -1421,7 +1407,7 @@ public func userInfoController(context: AccountContext, peerId: PeerId, mode: Us
                 let presentationData = context.sharedContext.currentPresentationData.with { $0 }
                 let text: String = presentationData.strings.UserInfo_TapToCall
                 
-                let tooltipController = TooltipController(text: text, dismissByTapOutside: true)
+                let tooltipController = TooltipController(content: .text(text), dismissByTapOutside: true)
                 tooltipController.dismissed = {
                 }
                 controller.present(tooltipController, in: .window(.root), with: TooltipControllerPresentationArguments(sourceNodeAndRect: { [weak resultItemNode] in

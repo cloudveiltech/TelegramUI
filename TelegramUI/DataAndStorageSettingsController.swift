@@ -4,7 +4,6 @@ import SwiftSignalKit
 import Postbox
 import TelegramCore
 import LegacyComponents
-import CloudVeilSecurityManager
 
 private final class DataAndStorageControllerArguments {
     let openStorageUsage: () -> Void
@@ -41,6 +40,22 @@ private enum DataAndStorageSection: Int32 {
     case voiceCalls
     case other
     case connection
+}
+
+enum DataAndStorageEntryTag: ItemListItemTag {
+    case automaticDownloadReset
+    case autoplayGifs
+    case autoplayVideos
+    case saveEditedPhotos
+    case downloadInBackground
+    
+    func isEqual(to other: ItemListItemTag) -> Bool {
+        if let other = other as? DataAndStorageEntryTag, self == other {
+            return true
+        } else {
+            return false
+        }
+    }
 }
 
 private enum DataAndStorageEntry: ItemListNodeEntry {
@@ -263,20 +278,17 @@ private enum DataAndStorageEntry: ItemListNodeEntry {
                     if enabled {
                         arguments.resetAutomaticDownload()
                     }
-                })
+                }, tag: DataAndStorageEntryTag.automaticDownloadReset)
             case let .autoplayHeader(theme, text):
                 return ItemListSectionHeaderItem(theme: theme, text: text, sectionId: self.section)
             case let .autoplayGifs(theme, text, value):
-                //CloudVeil start
-                let v = value && !MainController.SecurityStaticSettings.disableAutoPlayGifs
-                return ItemListSwitchItem(theme: theme, title: text, value: v, enabled: !MainController.SecurityStaticSettings.disableAutoPlayGifs, sectionId: self.section, style: .blocks, updated: { value in
+                return ItemListSwitchItem(theme: theme, title: text, value: value, sectionId: self.section, style: .blocks, updated: { value in
                     arguments.toggleAutoplayGifs(value)
-                })
-                //CloudVeil end
+                }, tag: DataAndStorageEntryTag.autoplayGifs)
             case let .autoplayVideos(theme, text, value):
                 return ItemListSwitchItem(theme: theme, title: text, value: value, sectionId: self.section, style: .blocks, updated: { value in
                     arguments.toggleAutoplayVideos(value)
-                })
+                }, tag: DataAndStorageEntryTag.autoplayVideos)
             case let .voiceCallsHeader(theme, text):
                 return ItemListSectionHeaderItem(theme: theme, text: text, sectionId: self.section)
             case let .useLessVoiceData(theme, text, value):
@@ -292,11 +304,11 @@ private enum DataAndStorageEntry: ItemListNodeEntry {
             case let .saveEditedPhotos(theme, text, value):
                 return ItemListSwitchItem(theme: theme, title: text, value: value, sectionId: self.section, style: .blocks, updated: { value in
                     arguments.toggleSaveEditedPhotos(value)
-                })
+                }, tag: DataAndStorageEntryTag.saveEditedPhotos)
             case let .downloadInBackground(theme, text, value):
                 return ItemListSwitchItem(theme: theme, title: text, value: value, sectionId: self.section, style: .blocks, updated: { value in
                     arguments.toggleDownloadInBackground(value)
-                })
+                }, tag: DataAndStorageEntryTag.downloadInBackground)
             case let .downloadInBackgroundInfo(theme, text):
                 return ItemListTextItem(theme: theme, text: .plain(text), sectionId: self.section)
             case let .connectionHeader(theme, text):
@@ -348,16 +360,16 @@ private func stringForUseLessDataSetting(_ dataSaving: VoiceCallDataSaving, stri
     }
 }
 
-private func stringForAutoDownloadTypes(strings: PresentationStrings, photo: Bool, videoSize: Int32?, fileSize: Int32?) -> String {
+private func stringForAutoDownloadTypes(strings: PresentationStrings, decimalSeparator: String, photo: Bool, videoSize: Int32?, fileSize: Int32?) -> String {
     var types: [String] = []
     if photo {
         types.append(strings.ChatSettings_AutoDownloadSettings_TypePhoto)
     }
     if let videoSize = videoSize {
-        types.append(strings.ChatSettings_AutoDownloadSettings_TypeVideo(autodownloadDataSizeString(Int64(videoSize))).0)
+        types.append(strings.ChatSettings_AutoDownloadSettings_TypeVideo(autodownloadDataSizeString(Int64(videoSize), decimalSeparator: decimalSeparator)).0)
     }
     if let fileSize = fileSize {
-        types.append(strings.ChatSettings_AutoDownloadSettings_TypeFile(autodownloadDataSizeString(Int64(fileSize))).0)
+        types.append(strings.ChatSettings_AutoDownloadSettings_TypeFile(autodownloadDataSizeString(Int64(fileSize), decimalSeparator: decimalSeparator)).0)
     }
 
     if types.isEmpty {
@@ -374,7 +386,7 @@ private func stringForAutoDownloadTypes(strings: PresentationStrings, photo: Boo
     return string
 }
 
-private func stringForAutoDownloadSetting(strings: PresentationStrings, settings: MediaAutoDownloadSettings, connectionType: AutomaticDownloadConnectionType) -> String {
+private func stringForAutoDownloadSetting(strings: PresentationStrings, decimalSeparator: String, settings: MediaAutoDownloadSettings, connectionType: AutomaticDownloadConnectionType) -> String {
     let connection: MediaAutoDownloadConnection
     switch connectionType {
         case .cellular:
@@ -391,7 +403,7 @@ private func stringForAutoDownloadSetting(strings: PresentationStrings, settings
         let video = isAutodownloadEnabledForAnyPeerType(category: categories.video)
         let file = isAutodownloadEnabledForAnyPeerType(category: categories.file)
     
-        return stringForAutoDownloadTypes(strings: strings, photo: photo, videoSize: video ? categories.video.sizeLimit : nil, fileSize: file ? categories.file.sizeLimit : nil)
+        return stringForAutoDownloadTypes(strings: strings, decimalSeparator: decimalSeparator, photo: photo, videoSize: video ? categories.video.sizeLimit : nil, fileSize: file ? categories.file.sizeLimit : nil)
     }
 }
 
@@ -401,9 +413,9 @@ private func dataAndStorageControllerEntries(state: DataAndStorageControllerStat
     entries.append(.storageUsage(presentationData.theme, presentationData.strings.ChatSettings_Cache))
     entries.append(.networkUsage(presentationData.theme, presentationData.strings.NetworkUsageSettings_Title))
     
-    entries.append(.automaticDownloadHeader(presentationData.theme, presentationData.strings.ChatSettings_AutoDownloadTitle))
-    entries.append(.automaticDownloadCellular(presentationData.theme, presentationData.strings.ChatSettings_AutoDownloadUsingCellular, stringForAutoDownloadSetting(strings: presentationData.strings, settings: data.automaticMediaDownloadSettings, connectionType: .cellular)))
-    entries.append(.automaticDownloadWifi(presentationData.theme, presentationData.strings.ChatSettings_AutoDownloadUsingWiFi, stringForAutoDownloadSetting(strings: presentationData.strings, settings: data.automaticMediaDownloadSettings, connectionType: .wifi)))
+    entries.append(.automaticDownloadHeader(presentationData.theme, presentationData.strings.ChatSettings_AutoDownloadTitle.uppercased()))
+    entries.append(.automaticDownloadCellular(presentationData.theme, presentationData.strings.ChatSettings_AutoDownloadUsingCellular, stringForAutoDownloadSetting(strings: presentationData.strings, decimalSeparator: presentationData.dateTimeFormat.decimalSeparator, settings: data.automaticMediaDownloadSettings, connectionType: .cellular)))
+    entries.append(.automaticDownloadWifi(presentationData.theme, presentationData.strings.ChatSettings_AutoDownloadUsingWiFi, stringForAutoDownloadSetting(strings: presentationData.strings, decimalSeparator: presentationData.dateTimeFormat.decimalSeparator, settings: data.automaticMediaDownloadSettings, connectionType: .wifi)))
     
     let defaultSettings = MediaAutoDownloadSettings.defaultSettings
     entries.append(.automaticDownloadReset(presentationData.theme, presentationData.strings.ChatSettings_AutoDownloadReset, data.automaticMediaDownloadSettings.cellular != defaultSettings.cellular || data.automaticMediaDownloadSettings.wifi != defaultSettings.wifi))
@@ -439,7 +451,7 @@ private func dataAndStorageControllerEntries(state: DataAndStorageControllerStat
     return entries
 }
 
-func dataAndStorageController(context: AccountContext) -> ViewController {
+func dataAndStorageController(context: AccountContext, focusOnItemTag: DataAndStorageEntryTag? = nil) -> ViewController {
     let initialState = DataAndStorageControllerState()
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     
@@ -528,10 +540,8 @@ func dataAndStorageController(context: AccountContext) -> ViewController {
         }).start()
     }, toggleAutoplayGifs: { value in
         let _ = updateMediaDownloadSettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
-            //CloudVeil start
             var settings = settings
-            settings.autoplayGifs = value && !MainController.SecurityStaticSettings.disableAutoPlayGifs
-            //CloudVeil end
+            settings.autoplayGifs = value
             return settings
         }).start()
     }, toggleAutoplayVideos: { value in
@@ -547,16 +557,16 @@ func dataAndStorageController(context: AccountContext) -> ViewController {
             return settings
         }).start()
     })
-    
+
     let signal = combineLatest(context.sharedContext.presentationData, statePromise.get(), dataAndStorageDataPromise.get()) |> deliverOnMainQueue
-        |> map { presentationData, state, dataAndStorageData -> (ItemListControllerState, (ItemListNodeState<DataAndStorageEntry>, DataAndStorageEntry.ItemGenerationArguments)) in
-            
-            let controllerState = ItemListControllerState(theme: presentationData.theme, title: .text(presentationData.strings.ChatSettings_Title), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back), animateChanges: false)
-            let listState = ItemListNodeState(entries: dataAndStorageControllerEntries(state: state, data: dataAndStorageData, presentationData: presentationData), style: .blocks, emptyStateItem: nil, animateChanges: false)
-            
-            return (controllerState, (listState, arguments))
-        } |> afterDisposed {
-            actionsDisposable.dispose()
+    |> map { presentationData, state, dataAndStorageData -> (ItemListControllerState, (ItemListNodeState<DataAndStorageEntry>, DataAndStorageEntry.ItemGenerationArguments)) in
+        
+        let controllerState = ItemListControllerState(theme: presentationData.theme, title: .text(presentationData.strings.ChatSettings_Title), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back), animateChanges: false)
+        let listState = ItemListNodeState(entries: dataAndStorageControllerEntries(state: state, data: dataAndStorageData, presentationData: presentationData), style: .blocks, ensureVisibleItemTag: focusOnItemTag, emptyStateItem: nil, animateChanges: false)
+        
+        return (controllerState, (listState, arguments))
+    } |> afterDisposed {
+        actionsDisposable.dispose()
     }
     
     let controller = ItemListController(context: context, state: signal)

@@ -8,9 +8,6 @@ import TelegramCore
 import SafariServices
 import MobileCoreServices
 import LegacyComponents
-import CloudVeilSecurityManager
-import MessageUI
-
 
 public enum ChatControllerPeekActions {
     case standard
@@ -208,6 +205,8 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
     private var raiseToListen: RaiseToListenManager?
     private var voicePlaylistDidEndTimestamp: Double = 0.0
     
+    private weak var messageTooltipController: TooltipController?
+    private weak var videoUnmuteTooltipController: TooltipController?
     private weak var silentPostTooltipController: TooltipController?
     private weak var mediaRecordingModeTooltipController: TooltipController?
     private weak var mediaRestrictedTooltipController: TooltipController?
@@ -216,7 +215,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
     private var screenCaptureEventsDisposable: Disposable?
     private let chatAdditionalDataDisposable = MetaDisposable()
     
-    private var volumeChangeDetector: VolumeChangeDetector?
+    private var volumeButtonsListener: VolumeButtonsListener?
     
     private var beginMediaRecordingRequestId: Int = 0
     private var lockMediaRecordingRequestId: Int?
@@ -262,8 +261,9 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             default:
                 navigationBarPresentationData = NavigationBarPresentationData(presentationData: self.presentationData)
         }
-
         super.init(context: context, navigationBarPresentationData: navigationBarPresentationData, mediaAccessoryPanelVisibility: mediaAccessoryPanelVisibility, locationBroadcastPanelSource: locationBroadcastPanelSource)
+        
+        self.blocksBackgroundWhenInOverlay = true
         
         self.navigationItem.backBarButtonItem = UIBarButtonItem(title: self.presentationData.strings.Common_Back, style: .plain, target: nil, action: nil)
         
@@ -275,13 +275,13 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             }
             strongSelf.chatDisplayNode.scrollToTop()
         }
-
+        
         self.attemptNavigation = { [weak self] action in
             guard let strongSelf = self else {
                 return true
             }
             if let _ = strongSelf.presentationInterfaceState.inputTextPanelState.mediaRecordingState {
-                strongSelf.present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: strongSelf.presentationData.theme), title: nil, text: strongSelf.presentationData.strings.Conversation_DiscardVoiceMessageDescription, actions: [TextAlertAction(type: .genericAction, title: strongSelf.presentationData.strings.Common_Cancel, action: {}), TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {
+                strongSelf.present(textAlertController(context: strongSelf.context, title: nil, text: strongSelf.presentationData.strings.Conversation_DiscardVoiceMessageDescription, actions: [TextAlertAction(type: .genericAction, title: strongSelf.presentationData.strings.Common_Cancel, action: {}), TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {
                     self?.stopMediaRecorder()
                     action()
                 })]), in: .window(.root))
@@ -296,6 +296,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                 return false
             }
             strongSelf.commitPurposefulAction()
+            strongSelf.videoUnmuteTooltipController?.dismiss()
             
             var openMessageByAction: Bool = false
 
@@ -327,7 +328,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                 }
             }
             
-            return openChatMessage(context: context, message: message, standalone: false, reverseMessageGalleryOrder: false, stream: mode == .stream, fromPlayingVideo: mode == .automaticPlayback, navigationController: strongSelf.navigationController as? NavigationController, dismissInput: {
+            return openChatMessage(context: context, message: message, standalone: false, reverseMessageGalleryOrder: false, mode: mode, navigationController: strongSelf.navigationController as? NavigationController, dismissInput: {
                 self?.chatDisplayNode.dismissInput()
             }, present: { c, a in
                 self?.present(c, in: .window(.root), with: a, blockInteraction: true)
@@ -504,6 +505,18 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                 return
             }
             strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { $0.updatedInterfaceState { $0.withToggledSelectedMessages(ids, value: value) } })
+            if let selectionState = strongSelf.presentationInterfaceState.interfaceState.selectionState {
+                let count = selectionState.selectedIds.count
+                let text: String
+                if count == 1 {
+                    text = "1 message selected"
+                } else {
+                    text = "\(count) messages selected"
+                }
+                DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + 0.1, execute: {
+                    UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification, text as NSString)
+                })
+            }
         }, sendMessage: { [weak self] text in
             guard let strongSelf = self, canSendMessagesToChat(strongSelf.presentationInterfaceState) else {
                 return
@@ -553,7 +566,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                     if let strongSelf = self {
                         strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: false, {
                             $0.updatedInterfaceState { $0.withUpdatedReplyMessageId(nil) }.updatedInputMode { current in
-                                if case let .media(mode, maybeExpanded) = current, let expanded = maybeExpanded, case .content = expanded  {
+                                if case let .media(mode, maybeExpanded) = current, maybeExpanded != nil  {
                                     return .media(mode: mode, expanded: nil)
                                 }
                                 return current
@@ -612,7 +625,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                                 case .none:
                                     break
                                 case let .alert(text):
-                                    strongSelf.present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: strongSelf.presentationData.theme), title: nil, text: text, actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]), in: .window(.root))
+                                    strongSelf.present(textAlertController(context: strongSelf.context, title: nil, text: text, actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]), in: .window(.root))
                                 case let .toast(text):
                                     let message: Signal<String?, NoError> = .single(text)
                                     let noMessage: Signal<String?, NoError> = .single(nil)
@@ -645,7 +658,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             }
         }, shareCurrentLocation: { [weak self] in
             if let strongSelf = self {
-                strongSelf.present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: strongSelf.presentationData.theme), title: strongSelf.presentationData.strings.Conversation_ShareBotLocationConfirmationTitle, text: strongSelf.presentationData.strings.Conversation_ShareBotLocationConfirmation, actions: [TextAlertAction(type: .genericAction, title: strongSelf.presentationData.strings.Common_Cancel, action: {}), TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {
+                strongSelf.present(textAlertController(context: strongSelf.context, title: strongSelf.presentationData.strings.Conversation_ShareBotLocationConfirmationTitle, text: strongSelf.presentationData.strings.Conversation_ShareBotLocationConfirmation, actions: [TextAlertAction(type: .genericAction, title: strongSelf.presentationData.strings.Common_Cancel, action: {}), TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {
                     if let strongSelf = self, let locationManager = strongSelf.context.sharedContext.locationManager {
                         let _ = (currentLocationManagerCoordinate(manager: locationManager, timeout: 5.0)
                         |> deliverOnMainQueue).start(next: { coordinate in
@@ -653,7 +666,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                                 if let coordinate = coordinate {
                                     strongSelf.sendMessages([.message(text: "", attributes: [], mediaReference: .standalone(media: TelegramMediaMap(latitude: coordinate.latitude, longitude: coordinate.longitude, geoPlace: nil, venue: nil, liveBroadcastingTimeout: nil)), replyToMessageId: nil, localGroupingKey: nil)])
                                 } else {
-                                    strongSelf.present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: strongSelf.presentationData.theme), title: nil, text: strongSelf.presentationData.strings.Login_UnknownError, actions: [TextAlertAction(type: .genericAction, title: strongSelf.presentationData.strings.Common_Cancel, action: {})]), in: .window(.root))
+                                    strongSelf.present(textAlertController(context: strongSelf.context, title: nil, text: strongSelf.presentationData.strings.Login_UnknownError, actions: [TextAlertAction(type: .genericAction, title: strongSelf.presentationData.strings.Common_Cancel, action: {})]), in: .window(.root))
                                 }
                             }
                         })
@@ -662,7 +675,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             }
         }, shareAccountContact: { [weak self] in
             if let strongSelf = self {
-                strongSelf.present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: strongSelf.presentationData.theme), title: strongSelf.presentationData.strings.Conversation_ShareBotContactConfirmationTitle, text: strongSelf.presentationData.strings.Conversation_ShareBotContactConfirmation, actions: [TextAlertAction(type: .genericAction, title: strongSelf.presentationData.strings.Common_Cancel, action: {}), TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {
+                strongSelf.present(textAlertController(context: strongSelf.context, title: strongSelf.presentationData.strings.Conversation_ShareBotContactConfirmationTitle, text: strongSelf.presentationData.strings.Conversation_ShareBotContactConfirmation, actions: [TextAlertAction(type: .genericAction, title: strongSelf.presentationData.strings.Common_Cancel, action: {}), TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {
                     if let strongSelf = self {
                         let _ = (strongSelf.context.account.postbox.loadedPeerWithId(strongSelf.context.account.peerId)
                         |> deliverOnMainQueue).start(next: { peer in
@@ -702,9 +715,9 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                 }
                 strongSelf.sendMessages([.message(text: command, attributes: attributes, mediaReference: nil, replyToMessageId: (postAsReply && messageId != nil) ? messageId! : nil, localGroupingKey: nil)])
             }
-        }, openInstantPage: { [weak self] message in
+        }, openInstantPage: { [weak self] message, associatedData in
             if let strongSelf = self, strongSelf.isNodeLoaded, let navigationController = strongSelf.navigationController as? NavigationController, let message = strongSelf.chatDisplayNode.historyNode.messageInCurrentHistoryView(message.id) {
-                openChatInstantPage(context: strongSelf.context, message: message, navigationController: navigationController)
+                openChatInstantPage(context: strongSelf.context, message: message, sourcePeerType: associatedData?.automaticDownloadPeerType, navigationController: navigationController)
             }
         }, openWallpaper: { [weak self] message in
             if let strongSelf = self, strongSelf.isNodeLoaded, let message = strongSelf.chatDisplayNode.historyNode.messageInCurrentHistoryView(message.id) {
@@ -823,7 +836,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                     if let cachedUserData = strongSelf.peerView?.cachedData as? CachedUserData, cachedUserData.callsPrivate {
                         let presentationData = context.sharedContext.currentPresentationData.with { $0 }
                         
-                        strongSelf.present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: presentationData.theme), title: presentationData.strings.Call_ConnectionErrorTitle, text: presentationData.strings.Call_PrivacyErrorMessage(peer.compactDisplayTitle).0, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), in: .window(.root))
+                        strongSelf.present(textAlertController(context: strongSelf.context, title: presentationData.strings.Call_ConnectionErrorTitle, text: presentationData.strings.Call_PrivacyErrorMessage(peer.compactDisplayTitle).0, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), in: .window(.root))
                         return
                     }
                     
@@ -838,7 +851,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                             }
                             |> deliverOnMainQueue).start(next: { peer, current in
                                 if let peer = peer, let current = current {
-                                    strongSelf.present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: presentationData.theme), title: presentationData.strings.Call_CallInProgressTitle, text: presentationData.strings.Call_CallInProgressMessage(current.compactDisplayTitle, peer.compactDisplayTitle).0, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_Cancel, action: {}), TextAlertAction(type: .genericAction, title: presentationData.strings.Common_OK, action: {
+                                    strongSelf.present(textAlertController(context: strongSelf.context, title: presentationData.strings.Call_CallInProgressTitle, text: presentationData.strings.Call_CallInProgressMessage(current.compactDisplayTitle, peer.compactDisplayTitle).0, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_Cancel, action: {}), TextAlertAction(type: .genericAction, title: presentationData.strings.Common_OK, action: {
                                         let _ = context.sharedContext.callManager?.requestCall(account: context.account, peerId: peer.id, endCurrentIfAny: true)
                                     })]), in: .window(.root))
                                 }
@@ -1017,15 +1030,6 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             }
         }, openCheckoutOrReceipt: { [weak self] messageId in
             if let strongSelf = self {
-                //CloudVeil start
-                if MainController.SecurityStaticSettings.disablePayments {
-                    let alert = standardTextAlertController(theme: AlertControllerTheme(presentationTheme: strongSelf.presentationData.theme), title: "CloudVeil", text: "This is disbled for your protection",
-                                                            actions: [TextAlertAction(type: .defaultAction, title: "Ok", action: {})])
-                    
-                    strongSelf.present(alert, in: .window(.root))
-                    return
-                }
-                //CloudVeil end
                 strongSelf.commitPurposefulAction()
                 if let message = strongSelf.chatDisplayNode.historyNode.messageInCurrentHistoryView(messageId) {
                     for media in message.media {
@@ -1110,6 +1114,10 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             if let strongSelf = self {
                 openAddContact(context: strongSelf.context, phoneNumber: phoneNumber, present: { [weak self] controller, arguments in
                     self?.present(controller, in: .window(.root), with: arguments)
+                }, pushController: { [weak self] controller in
+                    if let strongSelf = self {
+                        (strongSelf.navigationController as? NavigationController)?.pushViewController(controller)
+                    }
                 })
             }
         }, rateCall: { [weak self] message, callId in
@@ -1161,6 +1169,29 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             if let strongSelf = self {
                 strongSelf.context.sharedContext.applicationBindings.openAppStorePage()
             }
+        }, displayMessageTooltip: { [weak self] messageId, text, sourceNode, sourceFrame in
+            if let strongSelf = self {
+                if let sourceNode = sourceNode {
+                    strongSelf.messageTooltipController?.dismiss()
+                    let tooltipController = TooltipController(content: .text(text), dismissByTapOutside: true, dismissImmediatelyOnLayoutUpdate: true)
+                    strongSelf.messageTooltipController = tooltipController
+                    tooltipController.dismissed = { [weak tooltipController] in
+                        if let strongSelf = self, let tooltipController = tooltipController, strongSelf.messageTooltipController === tooltipController {
+                            strongSelf.messageTooltipController = nil
+                        }
+                    }
+                    strongSelf.present(tooltipController, in: .window(.root), with: TooltipControllerPresentationArguments(sourceNodeAndRect: {
+                        if let strongSelf = self {
+                            var rect = sourceNode.view.convert(sourceNode.view.bounds, to: strongSelf.chatDisplayNode.view)
+                            if let sourceFrame = sourceFrame {
+                                rect = CGRect(origin: rect.origin.offsetBy(dx: sourceFrame.minX, dy: sourceFrame.minY - sourceNode.bounds.minY), size: sourceFrame.size)
+                            }
+                            return (strongSelf.chatDisplayNode, rect)
+                        }
+                        return nil
+                    }))
+                }
+            }
         }, requestMessageUpdate: { [weak self] id in
             if let strongSelf = self {
                 strongSelf.chatDisplayNode.historyNode.requestMessageUpdate(id)
@@ -1169,7 +1200,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             (self?.view.window as? WindowHost)?.cancelInteractiveKeyboardGestures()
             self?.chatDisplayNode.cancelInteractiveKeyboardGestures()
         }, automaticMediaDownloadSettings: self.automaticMediaDownloadSettings,
-           pollActionState: ChatInterfacePollActionState())
+        pollActionState: ChatInterfacePollActionState())
         
         self.controllerInteraction = controllerInteraction
         
@@ -1215,6 +1246,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
         }
         chatInfoButtonItem.target = self
         chatInfoButtonItem.action = #selector(self.rightNavigationButtonAction)
+        chatInfoButtonItem.accessibilityLabel = "Info"
         self.chatInfoNavigationButton = ChatNavigationButton(action: .openChatInfo, buttonItem: chatInfoButtonItem)
         
         self.updateChatPresentationInterfaceState(animated: false, interactive: false, { state in
@@ -1556,7 +1588,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                 strongSelf.automaticMediaDownloadSettings = downloadSettings
                 strongSelf.controllerInteraction?.automaticMediaDownloadSettings = downloadSettings
                 if strongSelf.isNodeLoaded {
-                    strongSelf.chatDisplayNode.updateAutomaticMediaDownloadSettings()
+                    strongSelf.chatDisplayNode.updateAutomaticMediaDownloadSettings(downloadSettings)
                 }
             }
         })
@@ -1976,7 +2008,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                             stationaryItemRange = (maxInsertedItem + 1, Int.max)
                         }
                         
-                        mappedTransition = (ChatHistoryListViewTransition(historyView: transition.historyView, deleteItems: deleteItems, insertItems: insertItems, updateItems: transition.updateItems, options: options, scrollToItem: scrollToItem, stationaryItemRange: stationaryItemRange, initialData: transition.initialData, keyboardButtonsMessage: transition.keyboardButtonsMessage, cachedData: transition.cachedData, cachedDataMessages: transition.cachedDataMessages, readStateData: transition.readStateData, scrolledToIndex: transition.scrolledToIndex, animateIn: false), updateSizeAndInsets)
+                        mappedTransition = (ChatHistoryListViewTransition(historyView: transition.historyView, deleteItems: deleteItems, insertItems: insertItems, updateItems: transition.updateItems, options: options, scrollToItem: scrollToItem, stationaryItemRange: stationaryItemRange, initialData: transition.initialData, keyboardButtonsMessage: transition.keyboardButtonsMessage, cachedData: transition.cachedData, cachedDataMessages: transition.cachedDataMessages, readStateData: transition.readStateData, scrolledToIndex: transition.scrolledToIndex, peerType: transition.peerType, networkType: transition.networkType, animateIn: false), updateSizeAndInsets)
                     })
                     
                     if let mappedTransition = mappedTransition {
@@ -2174,6 +2206,17 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
         }, beginMessageSelection: { [weak self] messageIds in
             if let strongSelf = self, strongSelf.isNodeLoaded {
                 strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true,{ $0.updatedInterfaceState { $0.withUpdatedSelectedMessages(messageIds) } })
+                
+                    if let selectionState = strongSelf.presentationInterfaceState.interfaceState.selectionState {
+                    let count = selectionState.selectedIds.count
+                    let text: String
+                    if count == 1 {
+                        text = "1 message selected"
+                    } else {
+                        text = "\(count) messages selected"
+                    }
+                    UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification, text)
+                }
             }
         }, deleteSelectedMessages: { [weak self] in
             if let strongSelf = self {
@@ -2221,6 +2264,8 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                             }
                             if isAction && (actions.options == .deleteGlobally || actions.options == .deleteLocally) {
                                 let _ = deleteMessagesInteractively(postbox: strongSelf.context.account.postbox, messageIds: Array(messageIds), type: actions.options == .deleteLocally ? .forLocalPeer : .forEveryone).start()
+                            } else if (messages.first?.flags.isSending ?? false) {
+                                let _ = deleteMessagesInteractively(postbox: strongSelf.context.account.postbox, messageIds: Array(messageIds), type: .forEveryone).start()
                             } else {
                                 strongSelf.presentDeleteMessageOptions(messageIds: messageIds, options: actions.options)
                             }
@@ -2343,7 +2388,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                         case .restricted:
                             text = strongSelf.presentationData.strings.Group_ErrorSendRestrictedMedia
                     }
-                    strongSelf.present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: strongSelf.presentationData.theme), title: nil, text: text, actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {
+                    strongSelf.present(textAlertController(context: strongSelf.context, title: nil, text: text, actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {
                     })]), in: .window(.root))
                 }))
             }
@@ -2511,6 +2556,8 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             guard let strongSelf = self else {
                 return
             }
+            strongSelf.mediaRecordingModeTooltipController?.dismiss()
+            
             let requestId = strongSelf.beginMediaRecordingRequestId
             let begin: () -> Void = {
                 guard let strongSelf = self, strongSelf.beginMediaRecordingRequestId == requestId else {
@@ -2528,7 +2575,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                         return
                     }
                     if hasOngoingCall {
-                        strongSelf.present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: strongSelf.presentationData.theme), title: strongSelf.presentationData.strings.Call_CallInProgressTitle, text: strongSelf.presentationData.strings.Call_RecordingDisabledMessage, actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {
+                        strongSelf.present(textAlertController(context: strongSelf.context, title: strongSelf.presentationData.strings.Call_CallInProgressTitle, text: strongSelf.presentationData.strings.Call_RecordingDisabledMessage, actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {
                         })]), in: .window(.root))
                     } else {
                         if isVideo {
@@ -2539,7 +2586,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                     }
                 })
             }
-            DeviceAccess.authorizeAccess(to: .microphone(isVideo ? .video : .audio), presentationData: strongSelf.presentationData, present: { c, a in
+            DeviceAccess.authorizeAccess(to: .microphone(isVideo ? .video : .audio), context: strongSelf.context, presentationData: strongSelf.presentationData, present: { c, a in
                 self?.present(c, in: .window(.root), with: a)
             }, openSettings: {
                 self?.context.sharedContext.applicationBindings.openSettings()
@@ -2548,7 +2595,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                     return
                 }
                 if isVideo {
-                    DeviceAccess.authorizeAccess(to: .camera, presentationData: strongSelf.presentationData, present: { c, a in
+                    DeviceAccess.authorizeAccess(to: .camera, context: strongSelf.context, presentationData: strongSelf.presentationData, present: { c, a in
                         self?.present(c, in: .window(.root), with: a)
                     }, openSettings: {
                         self?.context.sharedContext.applicationBindings.openSettings()
@@ -2650,10 +2697,10 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                 }
                 
                 if let tooltipController = strongSelf.mediaRestrictedTooltipController, strongSelf.mediaRestrictedTooltipControllerMode == isStickers {
-                    tooltipController.text = banDescription
+                    tooltipController.content = .text(banDescription)
                 } else if let rect = rect {
                     strongSelf.mediaRestrictedTooltipController?.dismiss()
-                    let tooltipController = TooltipController(text: banDescription)
+                    let tooltipController = TooltipController(content: .text(banDescription))
                     strongSelf.mediaRestrictedTooltipController = tooltipController
                     strongSelf.mediaRestrictedTooltipControllerMode = isStickers
                     tooltipController.dismissed = { [weak tooltipController] in
@@ -2668,6 +2715,36 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                         return nil
                     }))
                 }
+            }
+        }, displayVideoUnmuteTip: { [weak self] location in
+            guard let strongSelf = self, let layout = strongSelf.validLayout, strongSelf.traceVisibility() && isTopmostChatController(strongSelf) else {
+                return
+            }
+            let deviceMetrics = DeviceMetrics.forScreenSize(layout.size)
+            let icon: UIImage?
+            if deviceMetrics == .iPhoneX || deviceMetrics == .iPhoneXSMax {
+                icon = UIImage(bundleImageName: "Chat/Message/VolumeButtonIconX")
+            } else {
+                icon = UIImage(bundleImageName: "Chat/Message/VolumeButtonIcon")
+            }
+            if let location = location, let icon = icon {
+                strongSelf.mediaRestrictedTooltipController?.dismiss()
+                let tooltipController = TooltipController(content: .iconAndText(icon, strongSelf.presentationInterfaceState.strings.Conversation_PressVolumeButtonForSound), timeout: 3.5, dismissByTapOutside: true, dismissImmediatelyOnLayoutUpdate: true)
+                strongSelf.videoUnmuteTooltipController = tooltipController
+                tooltipController.dismissed = { [weak tooltipController] in
+                    if let strongSelf = self, let tooltipController = tooltipController, strongSelf.videoUnmuteTooltipController === tooltipController {
+                        strongSelf.videoUnmuteTooltipController = nil
+                        ApplicationSpecificNotice.setVolumeButtonToUnmute(accountManager: strongSelf.context.sharedContext.accountManager)
+                    }
+                }
+                strongSelf.present(tooltipController, in: .window(.root), with: TooltipControllerPresentationArguments(sourceNodeAndRect: {
+                    if let strongSelf = self {
+                        return (strongSelf.chatDisplayNode, CGRect(origin: location, size: CGSize()))
+                    }
+                    return nil
+                }))
+            } else if let tooltipController = strongSelf.videoUnmuteTooltipController {
+                tooltipController.dismissImmediately()
             }
         }, switchMediaRecordingMode: { [weak self] in
             if let strongSelf = self {
@@ -2684,17 +2761,10 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                         let mode: ChatTextInputMediaRecordingButtonMode
                         switch current.mediaRecordingMode {
                             case .audio:
-                                //CloudVeil start
-                                if MainController.shared.isInChatVideoRecordingEnabled {
-                                  mode = .video
-                                } else {
-                                    mode = .audio
-                                }
-                                //CloudVeil end
+                                mode = .video
                             case .video:
                                 mode = .audio
                         }
-                       
                         updatedMode = mode
                         return current.withUpdatedMediaRecordingMode(mode)
                     }
@@ -2785,7 +2855,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                         if pinImmediately {
                             pinAction(true)
                         } else {
-                            strongSelf.present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: strongSelf.presentationData.theme), title: nil, text: strongSelf.presentationData.strings.Conversation_PinMessageAlertGroup, actions: [TextAlertAction(type: .genericAction, title: strongSelf.presentationData.strings.Conversation_PinMessageAlert_OnlyPin, action: {
+                            strongSelf.present(textAlertController(context: strongSelf.context, title: nil, text: strongSelf.presentationData.strings.Conversation_PinMessageAlertGroup, actions: [TextAlertAction(type: .genericAction, title: strongSelf.presentationData.strings.Conversation_PinMessageAlert_OnlyPin, action: {
                                 pinAction(false)
                             }), TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_Yes, action: {
                                 pinAction(true)
@@ -2822,7 +2892,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                     }
                         
                     if canManagePin {
-                        strongSelf.present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: strongSelf.presentationData.theme), title: nil, text: strongSelf.presentationData.strings.Conversation_UnpinMessageAlert, actions: [TextAlertAction(type: .genericAction, title: strongSelf.presentationData.strings.Common_No, action: {}), TextAlertAction(type: .genericAction, title: strongSelf.presentationData.strings.Common_Yes, action: {
+                        strongSelf.present(textAlertController(context: strongSelf.context, title: nil, text: strongSelf.presentationData.strings.Conversation_UnpinMessageAlert, actions: [TextAlertAction(type: .genericAction, title: strongSelf.presentationData.strings.Common_No, action: {}), TextAlertAction(type: .genericAction, title: strongSelf.presentationData.strings.Common_Yes, action: {
                             if let strongSelf = self {
                                 let disposable: MetaDisposable
                                 if let current = strongSelf.unpinMessageDisposable {
@@ -2845,7 +2915,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             }
         }, reportPeer: { [weak self] in
             self?.reportPeer()
-            }, presentPeerContact: { [weak self] in
+        }, presentPeerContact: { [weak self] in
             self?.addPeerContact()
         }, dismissReportPeer: { [weak self] in
             self?.dismissReportPeer()
@@ -2916,9 +2986,9 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                 }
                 
                 if let tooltipController = strongSelf.silentPostTooltipController {
-                    tooltipController.text = text
+                    tooltipController.content = .text(text)
                 } else if let rect = rect {
-                    let tooltipController = TooltipController(text: text)
+                    let tooltipController = TooltipController(content: .text(text))
                     strongSelf.silentPostTooltipController = tooltipController
                     tooltipController.dismissed = { [weak tooltipController] in
                         if let strongSelf = self, let tooltipController = tooltipController, strongSelf.silentPostTooltipController === tooltipController {
@@ -3137,7 +3207,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                         } else {
                             actions = [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]
                         }
-                        strongSelf.present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: strongSelf.presentationData.theme), title: nil, text: text, actions: actions), in: .window(.root))
+                        strongSelf.present(textAlertController(context: strongSelf.context, title: nil, text: text, actions: actions), in: .window(.root))
                     }
                 }))
             case let .group(groupId):
@@ -3195,10 +3265,28 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             }
         }
         
-        self.volumeChangeDetector = VolumeChangeDetector(view: self.chatDisplayNode.view, shouldBeActive: self.chatDisplayNode.historyNode.hasVisiblePlayableItemNodes, valueChanged: { [weak self] in
+        let shouldBeActive = combineLatest(MediaManager.globalAudioSession.isPlaybackActive() |> deliverOnMainQueue, self.chatDisplayNode.historyNode.hasVisiblePlayableItemNodes)
+        |> mapToSignal { [weak self] isPlaybackActive, hasVisiblePlayableItemNodes -> Signal<Bool, NoError> in
+            if hasVisiblePlayableItemNodes && !isPlaybackActive {
+                return Signal<Bool, NoError> { [weak self] subscriber in
+                    guard let strongSelf = self else {
+                        subscriber.putCompletion()
+                        return EmptyDisposable
+                    }
+                    subscriber.putNext(strongSelf.traceVisibility() && isTopmostChatController(strongSelf))
+                    subscriber.putCompletion()
+                    return EmptyDisposable
+                } |> then(.complete() |> delay(1.0, queue: Queue.mainQueue())) |> restart
+            } else {
+                return .single(false)
+            }
+        }
+        
+        self.volumeButtonsListener = VolumeButtonsListener(shouldBeActive: shouldBeActive, valueChanged: { [weak self] in
             guard let strongSelf = self, strongSelf.traceVisibility() && isTopmostChatController(strongSelf) else {
                 return
             }
+            strongSelf.videoUnmuteTooltipController?.dismiss()
             strongSelf.chatDisplayNode.playFirstMediaWithSound()
         })
         
@@ -3349,174 +3437,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                 }
             }
         }
-        
-        //CloudVeil start
-        if case let .peer(peerId) = self.chatLocation {
-            ChatController.checkPeerIsAllowed(peerId: peerId, controller: self, account: context.account, presentationData: self.presentationData) { [weak self] result in
-                if result == false {
-                    self?.dismissCurrent()
-                }
-            }
-        }
-        //CloudVeil end
     }
-    
-    //CloudVeil start
-    public static func checkPeerIsAllowed(peerId: PeerId, controller: ViewController, account: Account, presentationData: PresentationData, callback: @escaping (Bool) -> ()) {
-        let checked = MainController.shared.isConversationCheckedOnServer(conversationId: NSInteger(peerId.id), channelId: -NSInteger(peerId.id))
-        
-        let peerView = account.viewTracker.peerView(peerId)
-        
-        var disposable: Disposable? = nil
-        disposable = peerView.start(next: { peerView in
-            disposable!.dispose()
-            
-            var isDialogAllowed = true
-            var isGroup = false
-            var isChannel = false
-            var isBot = false
-            var isUser = false
-            let row = TGRow()
-            row.objectID = NSInteger(peerView.peerId.id)
-            let groupId = -NSInteger(peerView.peerId.id)
-            
-            let peerView = peerViewMainPeer(peerView)
-            row.title = peerView?.displayTitle as! NSString
-            
-            if peerId.namespace == Namespaces.Peer.SecretChat && !MainController.shared.isSecretChatAvailable {
-                isDialogAllowed = false
-                isUser = true
-            } else if let peer = peerView as? TelegramChannel, case .group = peer.info {
-                isDialogAllowed = MainController.shared.isGroupAvailable(groupID: NSInteger(-peerId.id))
-                isGroup = true
-                row.userName = (peer.username ?? "") as NSString
-                row.objectID = groupId
-            } else if peerId.namespace == Namespaces.Peer.CloudGroup {
-                isDialogAllowed = MainController.shared.isGroupAvailable(groupID: NSInteger(-peerId.id))
-                isGroup = true
-                row.objectID = groupId
-            } else if let peer = peerView as? TelegramChannel, case .broadcast = peer.info {
-                isDialogAllowed = MainController.shared.isChannelAvailable(channelID: NSInteger(-peerId.id))
-                isChannel = true
-                row.userName = (peer.username ?? "") as NSString
-                row.objectID = groupId
-            } else if let user = peerView as? TelegramUser, let _ = user.botInfo {
-                isDialogAllowed = MainController.shared.isBotAvailable(botID: NSInteger(peerId.id))
-                isBot = true
-                row.userName = (user.username ?? "") as NSString
-            } else {
-                isUser = true
-            }
-            
-            if !checked && !isUser {
-                MainController.shared.appendObserver {
-                    ChatController.checkPeerIsAllowed(peerId: peerId, controller: controller, account: account, presentationData: presentationData, callback: callback)
-                }
-                
-                if isBot {
-                    MainController.shared.replayRequestWithBot(bot: row)
-                } else if isChannel {
-                    MainController.shared.replayRequestWithChannel(channel: row)
-                } else if isGroup {
-                    MainController.shared.replayRequestWithGroup(group: row)
-                }
-                return
-            }
-            if !isDialogAllowed {
-                DispatchQueue.main.sync {
-                    ChatController.showBlockedPopup(peerView: peerView!, controller: controller, presentationData: presentationData)
-                }
-            }
-            DispatchQueue.main.sync {
-                callback(isDialogAllowed)
-            }
-        })
-    }
-    
-    public static func showBlockedPopup(peerView: Peer, controller: ViewController, presentationData: PresentationData) {
-        var type = "secret chat"
-        if let peer = peerView as? TelegramChannel, case .group = peer.info {
-            type = "group"
-        } else if peerView.id.namespace == Namespaces.Peer.CloudGroup {
-            type = "group"
-        } else if let peer = peerView as? TelegramChannel, case .broadcast = peer.info {
-            type = "channel"
-        } else if let user = peerView as? TelegramUser, let _ = user.botInfo {
-            type = "bot"
-        }
-        
-        let message = "This \(type) is blocked by our server policy. Please contact CloudVeil Support at support@cloudveil.org to request it be unblocked."
-        
-        let alert = standardTextAlertController(theme: AlertControllerTheme(presentationTheme: presentationData.theme), title: "CloudVeil", text: message,
-                                                     actions: [TextAlertAction(type: .defaultAction, title: "Cancel", action: {
-    
-                                                     }),
-                                                               TextAlertAction(type: .defaultAction, title: "Contact", action: {
-                                                                ChatController.showMailDialog(peerView: peerView, controller: controller.navigationController?.view.window?.rootViewController ?? controller)
-                                                               })
-            ])
-        
-        controller.present(alert, in: .window(.root))
-    }
-    
-    private static func showMailDialog(peerView: Peer, controller: UIViewController) {
-        if !MFMailComposeViewController.canSendMail() {
-            return
-        }
-        
-        var title = peerView.displayTitle
-        var userName = ""
-        var type = "secret chat"
-        var conversationId = peerView.id.id
-        if let peer = peerView as? TelegramChannel, case .group = peer.info {
-            type = "group"
-            title = peer.title
-            userName = peer.username ?? ""
-            conversationId = -conversationId
-        } else if peerView.id.namespace == Namespaces.Peer.CloudGroup {
-            type = "group"
-            conversationId = -conversationId
-        } else if let peer = peerView as? TelegramChannel, case .broadcast = peer.info {
-            type = "channel"
-            title = peer.title
-            userName = peer.username ?? ""
-            conversationId = -conversationId
-        } else if let user = peerView as? TelegramUser {
-            if let _ = user.botInfo {
-                type = "bot"
-            }
-            userName = user.username ?? ""
-        }
-        
-        let userId = TGUserController.shared.getUserID()
-        let message = "User ID: \(userId)\nConversation ID: \(conversationId)\nUsername: \(userName)\nType: \(type)\nTitle: \(title)"
-        let mail = MFMailComposeViewController()
-        mail.setSubject("Unblock Request for \(type): \(title)")
-        mail.setMessageBody(message, isHTML: false)
-        mail.setToRecipients(["support@cloudveil.org"])
-        
-        mail.mailComposeDelegate = mailDelegate
-        controller.present(mail, animated: true)
-    }
-    
-    private static let mailDelegate = MailDelegate()
-    private class MailDelegate: NSObject, MFMailComposeViewControllerDelegate {
-        public func mailComposeController(_ controller: MFMailComposeViewController, didFinishWith result: MFMailComposeResult, error: Error?) {
-                // Dismiss the mail compose view controller.
-                controller.dismiss(animated: true, completion: {
-                    
-                })
-            }
-    }
-    
-    private func dismissCurrent() {
-        if attemptNavigation({
-            self.navigationController?.popViewController(animated: true)
-        }) {
-            navigationController?.popViewController(animated: true)
-        }
-    }
-    //CloudVeil end
     
     override public func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
@@ -3524,8 +3445,11 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
         self.chatDisplayNode.historyNode.canReadHistory.set(.single(false))
         self.saveInterfaceState()
         
+        self.messageTooltipController?.dismiss()
+        self.videoUnmuteTooltipController?.dismiss()
         self.silentPostTooltipController?.dismiss()
         self.mediaRecordingModeTooltipController?.dismiss()
+        self.mediaRestrictedTooltipController?.dismiss()
         
         self.window?.forEachController({ controller in
             if let controller = controller as? UndoOverlayController {
@@ -3579,6 +3503,16 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
         self.chatDisplayNode.containerLayoutUpdated(layout, navigationBarHeight: self.navigationHeight, transition: transition, listViewTransaction: { updateSizeAndInsets, additionalScrollDistance, scrollToTop in
             self.chatDisplayNode.historyNode.updateLayout(transition: transition, updateSizeAndInsets: updateSizeAndInsets, additionalScrollDistance: additionalScrollDistance, scrollToTop: scrollToTop)
         })
+    }
+    
+    override public func updateToInterfaceOrientation(_ orientation: UIInterfaceOrientation) {
+        guard let layout = self.validLayout, case .compact = layout.metrics.widthClass else {
+            return
+        }
+        let hasOverlayNodes = self.context.sharedContext.mediaManager.overlayMediaManager.controller?.hasNodes ?? false
+        if self.validLayout != nil && orientation.isLandscape && !hasOverlayNodes && self.traceVisibility() && isTopmostChatController(self) {
+            self.chatDisplayNode.openCurrentPlayingWithSoundMedia()
+        }
     }
     
     func updateChatPresentationInterfaceState(animated: Bool = true, interactive: Bool, saveInterfaceState: Bool = false, _ f: (ChatPresentationInterfaceState) -> ChatPresentationInterfaceState) {
@@ -3667,7 +3601,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                             |> deliverOnMainQueue).start(next: { [weak self] value in
                                 if let strongSelf = self, !value {
                                     let _ = ApplicationSpecificNotice.setSecretChatInlineBotUsage(accountManager: strongSelf.context.sharedContext.accountManager).start()
-                                    strongSelf.present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: strongSelf.presentationData.theme), title: nil, text: strongSelf.presentationData.strings.Conversation_SecretChatContextBotAlert, actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]), in: .window(.root))
+                                    strongSelf.present(textAlertController(context: strongSelf.context, title: nil, text: strongSelf.presentationData.strings.Conversation_SecretChatContextBotAlert, actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]), in: .window(.root))
                                 }
                             })
                         }
@@ -3709,7 +3643,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             if case let .peer(peerId) = self.chatLocation, peerId.namespace == Namespaces.Peer.SecretChat {
                 linkPreviews = interactiveChatLinkPreviewsEnabled(accountManager: self.context.sharedContext.accountManager, displayAlert: { [weak self] f in
                     if let strongSelf = self {
-                        strongSelf.present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: strongSelf.presentationData.theme), title: nil, text: strongSelf.presentationData.strings.Conversation_SecretLinkPreviewAlert, actions: [
+                        strongSelf.present(textAlertController(context: strongSelf.context, title: nil, text: strongSelf.presentationData.strings.Conversation_SecretLinkPreviewAlert, actions: [
                             TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_Yes, action: {
                             f.f(true)
                         }), TextAlertAction(type: .genericAction, title: strongSelf.presentationData.strings.Common_No, action: {
@@ -3874,17 +3808,6 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
         if saveInterfaceState {
             self.saveInterfaceState(includeScrollState: false)
         }
-        
-        //CloudVeil start
-        if let peer = self.presentationInterfaceState.renderedPeer?.peer as? TelegramSecretChat {
-            let timeout = peer.messageAutoremoveTimeout ?? 0
-            let minLength = Int32(MainController.shared.secretChatMinimumLength)
-            if timeout < minLength {
-                let value = minLength
-                setSecretChatMessageAutoremoveTimeoutInteractively(account: context.account, peerId: peer.id, timeout: value == 0 ? nil : value).start()
-            }
-        }
-        //CloudVeil end
     }
     
     private func updateItemNodesSelectionStates(animated: Bool) {
@@ -3939,6 +3862,10 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                 self.updateChatPresentationInterfaceState(animated: true, interactive: true, { $0.updatedInterfaceState { $0.withoutSelectionState() } })
             case .clearHistory:
                 if case let .peer(peerId) = self.chatLocation {
+                    guard let peer = self.presentationInterfaceState.renderedPeer, let chatPeer = peer.peers[peer.peerId], let mainPeer = peer.chatMainPeer else {
+                        return
+                    }
+                    
                     let text: String
                     if peerId == self.context.account.peerId {
                         text = self.presentationData.strings.Conversation_ClearSelfHistory
@@ -3949,28 +3876,60 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                     } else {
                         text = self.presentationData.strings.Conversation_ClearPrivateHistory
                     }
-
-                    let actionSheet = ActionSheetController(presentationTheme: self.presentationData.theme)
-                    actionSheet.setItemGroups([ActionSheetItemGroup(items: [
-                        ActionSheetTextItem(title: text),
-                        ActionSheetButtonItem(title: self.presentationData.strings.Conversation_ClearAll, color: .destructive, action: { [weak self, weak actionSheet] in
-                            actionSheet?.dismissAnimated()
-                            if let strongSelf = self {
-                                strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { $0.updatedInterfaceState { $0.withoutSelectionState() } })
-                                strongSelf.chatDisplayNode.historyNode.historyAppearsCleared = true
-                                let account = strongSelf.context.account
-                                strongSelf.present(UndoOverlayController(context: strongSelf.context, text: strongSelf.presentationData.strings.Undo_MessagesDeleted, action: { shouldCommit in
-                                    if shouldCommit {
-                                        let _ = clearHistoryInteractively(postbox: account.postbox, peerId: peerId).start(completed: {
-                                            self?.chatDisplayNode.historyNode.historyAppearsCleared = false
-                                        })
-                                    } else {
-                                        self?.chatDisplayNode.historyNode.historyAppearsCleared = false
-                                    }
-                                }), in: .window(.root))
+                    
+                    var canRemoveGlobally = false
+                    let limitsConfiguration = self.context.currentLimitsConfiguration.with { $0 }
+                    if peerId.namespace == Namespaces.Peer.CloudUser && peerId != self.context.account.peerId {
+                        if limitsConfiguration.maxMessageRevokeIntervalInPrivateChats == LimitsConfiguration.timeIntervalForever {
+                            canRemoveGlobally = true
+                        }
+                    }
+                    if let user = chatPeer as? TelegramUser, user.botInfo != nil {
+                        canRemoveGlobally = false
+                    }
+                    
+                    let account = self.context.account
+                    
+                    let beginClear: (InteractiveMessagesDeletionType) -> Void = { [weak self] type in
+                        guard let strongSelf = self else {
+                            return
+                        }
+                        strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { $0.updatedInterfaceState { $0.withoutSelectionState() } })
+                        strongSelf.chatDisplayNode.historyNode.historyAppearsCleared = true
+                        
+                        strongSelf.present(UndoOverlayController(context: strongSelf.context, text: strongSelf.presentationData.strings.Undo_MessagesDeleted, action: { shouldCommit in
+                            if shouldCommit {
+                                let _ = clearHistoryInteractively(postbox: account.postbox, peerId: peerId, type: type).start(completed: {
+                                    self?.chatDisplayNode.historyNode.historyAppearsCleared = false
+                                })
+                            } else {
+                                self?.chatDisplayNode.historyNode.historyAppearsCleared = false
                             }
-                        })
-                    ]), ActionSheetItemGroup(items: [
+                        }), in: .window(.root))
+                    }
+                    
+                    let actionSheet = ActionSheetController(presentationTheme: self.presentationData.theme)
+                    var items: [ActionSheetItem] = []
+                        
+                    if canRemoveGlobally {
+                        items.append(DeleteChatPeerActionSheetItem(context: self.context, peer: mainPeer, chatPeer: chatPeer, action: .clearHistory, strings: self.presentationData.strings))
+                        items.append(ActionSheetButtonItem(title: self.presentationData.strings.ChatList_DeleteForEveryone(mainPeer.compactDisplayTitle).0, color: .destructive, action: { [weak actionSheet] in
+                            beginClear(.forEveryone)
+                            actionSheet?.dismissAnimated()
+                        }))
+                        items.append(ActionSheetButtonItem(title: self.presentationData.strings.ChatList_DeleteForCurrentUser, color: .destructive, action: { [weak actionSheet] in
+                            beginClear(.forLocalPeer)
+                            actionSheet?.dismissAnimated()
+                        }))
+                    } else {
+                        items.append(ActionSheetTextItem(title: text))
+                        items.append(ActionSheetButtonItem(title: self.presentationData.strings.Conversation_ClearAll, color: .destructive, action: { [weak actionSheet] in
+                            actionSheet?.dismissAnimated()
+                            beginClear(.forLocalPeer)
+                        }))
+                    }
+
+                    actionSheet.setItemGroups([ActionSheetItemGroup(items: items), ActionSheetItemGroup(items: [
                         ActionSheetButtonItem(title: self.presentationData.strings.Common_Cancel, color: .accent, action: { [weak actionSheet] in
                             actionSheet?.dismissAnimated()
                         })
@@ -4099,6 +4058,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             }
         
             let legacyController = LegacyController(presentation: .custom, theme: strongSelf.presentationData.theme, initialLayout: strongSelf.validLayout)
+            legacyController.blocksBackgroundWhenInOverlay = true
             legacyController.statusBar.statusBarStyle = .Ignore
             legacyController.controllerLoaded = { [weak legacyController] in
                 legacyController?.view.disablesInteractiveTransitionGestureRecognizer = true
@@ -5434,7 +5394,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                     }
                     strongSelf.openResolved(.peer(peer.id, navigation))
                 } else {
-                    strongSelf.present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: strongSelf.presentationData.theme), title: nil, text: strongSelf.presentationData.strings.Resolve_ErrorNotFound, actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]), in: .window(.root))
+                    strongSelf.present(textAlertController(context: strongSelf.context, title: nil, text: strongSelf.presentationData.strings.Resolve_ErrorNotFound, actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]), in: .window(.root))
                 }
             }
         }))
@@ -5553,44 +5513,36 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             guard let strongSelf = self else {
                 return
             }
-            //CloudVeil start
-            ChatController.checkPeerIsAllowed(peerId: peerId, controller: strongSelf, account: strongSelf.context.account, presentationData: strongSelf.presentationData) { [weak self] result in
-                if result == false {
-                   return
-                }
-            
-                switch navigation {
-                    case let .chat(_, messageId):
-                        if case .peer(peerId) = strongSelf.chatLocation {
-                            if let messageId = messageId {
-                                strongSelf.navigateToMessage(from: nil, to: .id(messageId))
-                            }
-                        } else if let navigationController = strongSelf.navigationController as? NavigationController {
-                            navigateToChatController(navigationController: navigationController, context: strongSelf.context, chatLocation: .peer(peerId), messageId: messageId, keepStack: .always)
+            switch navigation {
+                case let .chat(_, messageId):
+                    if case .peer(peerId) = strongSelf.chatLocation {
+                        if let messageId = messageId {
+                            strongSelf.navigateToMessage(from: nil, to: .id(messageId))
                         }
-                    case .info:
-                        strongSelf.navigationActionDisposable.set((strongSelf.context.account.postbox.loadedPeerWithId(peerId)
-                            |> take(1)
-                            |> deliverOnMainQueue).start(next: { [weak self] peer in
-                                if let strongSelf = self, peer.restrictionText == nil {
-                                    if let infoController = peerInfoController(context: strongSelf.context, peer: peer) {
-                                        (strongSelf.navigationController as? NavigationController)?.pushViewController(infoController)
-                                    }
-                                }
-                            }))
-                    case let .withBotStartPayload(startPayload):
-                        if case .peer(peerId) = strongSelf.chatLocation {
-                            strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, {
-                                $0.updatedBotStartPayload(startPayload.payload)
-                            })
-                        } else if let navigationController = strongSelf.navigationController as? NavigationController {
-                            navigateToChatController(navigationController: navigationController, context: strongSelf.context, chatLocation: .peer(peerId), botStart: startPayload)
-                        }
-                    default:
-                        break
+                    } else if let navigationController = strongSelf.navigationController as? NavigationController {
+                        navigateToChatController(navigationController: navigationController, context: strongSelf.context, chatLocation: .peer(peerId), messageId: messageId, keepStack: .always)
                     }
-            }
-            //CloudVeil end
+                case .info:
+                    strongSelf.navigationActionDisposable.set((strongSelf.context.account.postbox.loadedPeerWithId(peerId)
+                        |> take(1)
+                        |> deliverOnMainQueue).start(next: { [weak self] peer in
+                            if let strongSelf = self, peer.restrictionText == nil {
+                                if let infoController = peerInfoController(context: strongSelf.context, peer: peer) {
+                                    (strongSelf.navigationController as? NavigationController)?.pushViewController(infoController)
+                                }
+                            }
+                        }))
+                case let .withBotStartPayload(startPayload):
+                    if case .peer(peerId) = strongSelf.chatLocation {
+                        strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, {
+                            $0.updatedBotStartPayload(startPayload.payload)
+                        })
+                    } else if let navigationController = strongSelf.navigationController as? NavigationController {
+                        navigateToChatController(navigationController: navigationController, context: strongSelf.context, chatLocation: .peer(peerId), botStart: startPayload)
+                    }
+                default:
+                    break
+                }
         }, sendFile: { [weak self] f in
             self?.interfaceInteraction?.sendSticker(f)
         }, present: { [weak self] c, a in
@@ -5661,7 +5613,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             if displayUrl.count > maxLength {
                 displayUrl = String(displayUrl[..<displayUrl.index(displayUrl.startIndex, offsetBy: maxLength - 2)]) + "..."
             }
-            self.present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: self.presentationData.theme), title: nil, text: self.presentationData.strings.Generic_OpenHiddenLinkAlert(displayUrl).0, actions: [TextAlertAction(type: .genericAction, title: self.presentationData.strings.Common_No, action: {}), TextAlertAction(type: .defaultAction, title: self.presentationData.strings.Common_Yes, action: {
+            self.present(textAlertController(context: self.context, title: nil, text: self.presentationData.strings.Generic_OpenHiddenLinkAlert(displayUrl).0, actions: [TextAlertAction(type: .genericAction, title: self.presentationData.strings.Common_No, action: {}), TextAlertAction(type: .defaultAction, title: self.presentationData.strings.Common_Yes, action: {
                 openImpl()
             })]), in: .window(.root))
         } else {
@@ -5743,12 +5695,6 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                     if let parsedUrl = URL(string: string) {
                         if parsedUrl.scheme == "http" || parsedUrl.scheme == "https" {
                             if #available(iOSApplicationExtension 9.0, *) {
-                                //CloudVeil start
-                                if MainController.SecurityStaticSettings.disableInAppBrowser {
-                                    return nil
-                                }
-                                //CloudVeil end
-                                
                                 let controller = SFSafariViewController(url: parsedUrl)
                                 if #available(iOSApplicationExtension 10.0, *) {
                                     controller.preferredBarTintColor = self.presentationData.theme.rootController.navigationBar.backgroundColor
@@ -6018,7 +5964,22 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             isChannel = true
         }
         
-        if options.contains(.deleteGlobally) {
+        if options.contains(.cancelSending) {
+            items.append(ActionSheetButtonItem(title: self.presentationData.strings.Conversation_ContextMenuCancelSending, color: .destructive, action: { [weak self, weak actionSheet] in
+                actionSheet?.dismissAnimated()
+                if let strongSelf = self {
+                    strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { $0.updatedInterfaceState { $0.withoutSelectionState() } })
+                    let _ = deleteMessagesInteractively(postbox: strongSelf.context.account.postbox, messageIds: Array(messageIds), type: .forEveryone).start()
+                }
+            }))
+        }
+        var unsendPersonalMessages = false
+        if options.contains(.unsendPersonal) {
+            items.append(ActionSheetTextItem(title: self.presentationData.strings.Chat_UnsendMyMessagesAlertTitle(personalPeerName ?? "").0))
+            items.append(ActionSheetSwitchItem(title: self.presentationData.strings.Chat_UnsendMyMessages, isOn: false, action: { value in
+                unsendPersonalMessages = value
+            }))
+        } else if options.contains(.deleteGlobally) {
             let globalTitle: String
             if isChannel {
                 globalTitle = self.presentationData.strings.Conversation_DeleteMessagesForEveryone
@@ -6037,7 +5998,9 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
         }
         if options.contains(.deleteLocally) {
             var localOptionText = self.presentationData.strings.Conversation_DeleteMessagesForMe
-            if case .peer(self.context.account.peerId) = self.chatLocation {
+            if options.contains(.unsendPersonal) {
+                localOptionText = self.presentationData.strings.Chat_DeleteMessagesConfirmation(Int32(messageIds.count))
+            } else if case .peer(self.context.account.peerId) = self.chatLocation {
                 if messageIds.count == 1 {
                     localOptionText = self.presentationData.strings.Conversation_Moderate_Delete
                 } else {
@@ -6048,7 +6011,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                 actionSheet?.dismissAnimated()
                 if let strongSelf = self {
                     strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { $0.updatedInterfaceState { $0.withoutSelectionState() } })
-                    let _ = deleteMessagesInteractively(postbox: strongSelf.context.account.postbox, messageIds: Array(messageIds), type: .forLocalPeer).start()
+                    let _ = deleteMessagesInteractively(postbox: strongSelf.context.account.postbox, messageIds: Array(messageIds), type: unsendPersonalMessages ? .forEveryone : .forLocalPeer).start()
                 }
             }))
         }
@@ -6108,9 +6071,6 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
     }
     
     private func displayMediaRecordingTip() {
-        //CloudVeil disabled
-        return
-                
         let rect: CGRect? = self.chatDisplayNode.frameForInputActionButton()
         
         let updatedMode: ChatTextInputMediaRecordingButtonMode = self.presentationInterfaceState.interfaceState.mediaRecordingMode
@@ -6123,9 +6083,9 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
         }
         
         if let tooltipController = self.mediaRecordingModeTooltipController {
-            tooltipController.text = text
+            tooltipController.content = .text(text)
         } else if let rect = rect {
-            let tooltipController = TooltipController(text: text)
+            let tooltipController = TooltipController(content: .text(text))
             self.mediaRecordingModeTooltipController = tooltipController
             tooltipController.dismissed = { [weak self, weak tooltipController] in
                 if let strongSelf = self, let tooltipController = tooltipController, strongSelf.mediaRecordingModeTooltipController === tooltipController {
@@ -6152,62 +6112,74 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
         if self.chatDisplayNode.isInputViewFocused {
             inputShortcuts = [KeyShortcut(title: strings.KeyCommand_SendMessage, input: "\r", action: {})]
         } else {
-            inputShortcuts = [KeyShortcut(title: strings.KeyCommand_FocusOnInputField, input: "\r", action: { [weak self] in
-                if let strongSelf = self {
-                    strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { state in
-                        return state.updatedInterfaceState { interfaceState in
-                            return interfaceState.withUpdatedEffectiveInputState(interfaceState.effectiveInputState)
-                            }.updatedInputMode({ _ in ChatInputMode.text })
+            inputShortcuts = [
+                KeyShortcut(title: strings.KeyCommand_FocusOnInputField, input: "\r", action: { [weak self] in
+                    if let strongSelf = self {
+                        strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { state in
+                            return state.updatedInterfaceState { interfaceState in
+                                return interfaceState.withUpdatedEffectiveInputState(interfaceState.effectiveInputState)
+                                }.updatedInputMode({ _ in ChatInputMode.text })
+                            })
+                    }
+                }),
+                KeyShortcut(input: "/", modifiers: [], action: { [weak self] in
+                    if let strongSelf = self {
+                        strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { state in
+                            if state.interfaceState.effectiveInputState.inputText.length == 0 {
+                                return state.updatedInterfaceState { interfaceState in
+                                    let effectiveInputState = ChatTextInputState(inputText: NSAttributedString(string: "/"))
+                                    return interfaceState.withUpdatedEffectiveInputState(effectiveInputState)
+                                }.updatedInputMode({ _ in ChatInputMode.text })
+                            } else {
+                                return state
+                            }
                         })
-                }
-            }),
-            KeyShortcut(input: "/", modifiers: [], action: { [weak self] in
-                if let strongSelf = self {
-                    strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { state in
-                        if state.interfaceState.effectiveInputState.inputText.length == 0 {
-                            return state.updatedInterfaceState { interfaceState in
-                                let effectiveInputState = ChatTextInputState(inputText: NSAttributedString(string: "/"))
-                                return interfaceState.withUpdatedEffectiveInputState(effectiveInputState)
-                            }.updatedInputMode({ _ in ChatInputMode.text })
-                        } else {
-                            return state
-                        }
-                    })
-                }
-            }),
-            KeyShortcut(input: "2", modifiers: [.shift], action: { [weak self] in
-                if let strongSelf = self {
-                    strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { state in
-                        if state.interfaceState.effectiveInputState.inputText.length == 0 {
-                            return state.updatedInterfaceState { interfaceState in
-                                let effectiveInputState = ChatTextInputState(inputText: NSAttributedString(string: "@"))
-                                return interfaceState.withUpdatedEffectiveInputState(effectiveInputState)
-                            }.updatedInputMode({ _ in ChatInputMode.text })
-                        } else {
-                            return state
-                        }
-                    })
-                }
-            }),
-            KeyShortcut(input: "3", modifiers: [.shift], action: { [weak self] in
-                if let strongSelf = self {
-                    strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { state in
-                        if state.interfaceState.effectiveInputState.inputText.length == 0 {
-                            return state.updatedInterfaceState { interfaceState in
-                                let effectiveInputState = ChatTextInputState(inputText: NSAttributedString(string: "#"))
-                                return interfaceState.withUpdatedEffectiveInputState(effectiveInputState)
-                            }.updatedInputMode({ _ in ChatInputMode.text })
-                        } else {
-                            return state
-                        }
-                    })
-                }
-            })
+                    }
+                }),
+                KeyShortcut(input: "2", modifiers: [.shift], action: { [weak self] in
+                    if let strongSelf = self {
+                        strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { state in
+                            if state.interfaceState.effectiveInputState.inputText.length == 0 {
+                                return state.updatedInterfaceState { interfaceState in
+                                    let effectiveInputState = ChatTextInputState(inputText: NSAttributedString(string: "@"))
+                                    return interfaceState.withUpdatedEffectiveInputState(effectiveInputState)
+                                }.updatedInputMode({ _ in ChatInputMode.text })
+                            } else {
+                                return state
+                            }
+                        })
+                    }
+                }),
+                KeyShortcut(input: "3", modifiers: [.shift], action: { [weak self] in
+                    if let strongSelf = self {
+                        strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { state in
+                            if state.interfaceState.effectiveInputState.inputText.length == 0 {
+                                return state.updatedInterfaceState { interfaceState in
+                                    let effectiveInputState = ChatTextInputState(inputText: NSAttributedString(string: "#"))
+                                    return interfaceState.withUpdatedEffectiveInputState(effectiveInputState)
+                                }.updatedInputMode({ _ in ChatInputMode.text })
+                            } else {
+                                return state
+                            }
+                        })
+                    }
+                })
             ]
             
-            if true {
+            if let message = self.chatDisplayNode.historyNode.latestMessageInCurrentHistoryView(), !message.flags.contains(.Incoming) {
                 inputShortcuts.append(KeyShortcut(input: UIKeyInputUpArrow, action: { [weak self] in
-                    
+                    if let strongSelf = self {
+                        var canEdit = false
+                        strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { state in
+                            if state.interfaceState.effectiveInputState.inputText.length == 0 && state.interfaceState.editMessage == nil {
+                                canEdit = true
+                            }
+                            return state
+                        })
+                        if canEdit {
+                            strongSelf.interfaceInteraction?.setupEditMessage(message.id)
+                        }
+                    }
                 }))
             }
         }
@@ -6215,12 +6187,12 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
         let otherShortcuts: [KeyShortcut] = [
             KeyShortcut(title: strings.KeyCommand_ScrollUp, input: UIKeyInputUpArrow, modifiers: [.shift], action: { [weak self] in
                 if let strongSelf = self {
-                    strongSelf.chatDisplayNode.historyNode.scrollWithDeltaOffset(75)
+                    _ = strongSelf.chatDisplayNode.historyNode.scrollWithDirection(.down, distance: 75.0)
                 }
             }),
             KeyShortcut(title: strings.KeyCommand_ScrollDown, input: UIKeyInputDownArrow, modifiers: [.shift], action: { [weak self] in
                 if let strongSelf = self {
-                    strongSelf.chatDisplayNode.historyNode.scrollWithDeltaOffset(-75)
+                    _ = strongSelf.chatDisplayNode.historyNode.scrollWithDirection(.up, distance: 75.0)
                 }
             }),
             KeyShortcut(title: strings.KeyCommand_ChatInfo, input: "I", modifiers: [.command, .control], action: { [weak self] in
@@ -6236,9 +6208,6 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
                         }.updatedInputMode({ _ in ChatInputMode.media(mode: .other, expanded: nil) })
                     })
                 }
-            }),
-            KeyShortcut(input: "W", modifiers: [.command], action: { [weak self] in
-
             })
         ]
         

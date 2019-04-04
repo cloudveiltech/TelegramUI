@@ -22,11 +22,12 @@ class UniversalVideoGalleryItem: GalleryItem {
     let credit: NSAttributedString?
     let hideControls: Bool
     let fromPlayingVideo: Bool
+    let landscape: Bool
     let playbackCompleted: () -> Void
     let performAction: (GalleryControllerInteractionTapAction) -> Void
     let openActionOptions: (GalleryControllerInteractionTapAction) -> Void
     
-    init(context: AccountContext, presentationData: PresentationData, content: UniversalVideoContent, originData: GalleryItemOriginData?, indexData: GalleryItemIndexData?, contentInfo: UniversalVideoGalleryItemContentInfo?, caption: NSAttributedString, credit: NSAttributedString? = nil, hideControls: Bool = false, fromPlayingVideo: Bool = false, playbackCompleted: @escaping () -> Void = {}, performAction: @escaping (GalleryControllerInteractionTapAction) -> Void, openActionOptions: @escaping (GalleryControllerInteractionTapAction) -> Void) {
+    init(context: AccountContext, presentationData: PresentationData, content: UniversalVideoContent, originData: GalleryItemOriginData?, indexData: GalleryItemIndexData?, contentInfo: UniversalVideoGalleryItemContentInfo?, caption: NSAttributedString, credit: NSAttributedString? = nil, hideControls: Bool = false, fromPlayingVideo: Bool = false, landscape: Bool = false, playbackCompleted: @escaping () -> Void = {}, performAction: @escaping (GalleryControllerInteractionTapAction) -> Void, openActionOptions: @escaping (GalleryControllerInteractionTapAction) -> Void) {
         self.context = context
         self.presentationData = presentationData
         self.content = content
@@ -37,6 +38,7 @@ class UniversalVideoGalleryItem: GalleryItem {
         self.credit = credit
         self.hideControls = hideControls
         self.fromPlayingVideo = fromPlayingVideo
+        self.landscape = landscape
         self.playbackCompleted = playbackCompleted
         self.performAction = performAction
         self.openActionOptions = openActionOptions
@@ -137,7 +139,7 @@ private struct FetchControls {
 
 final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
     private let context: AccountContext
-    private let strings: PresentationStrings
+    private let presentationData: PresentationData
     
     fileprivate let _ready = Promise<Void>()
     fileprivate let _title = Promise<String>()
@@ -159,6 +161,8 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
     private var validLayout: (ContainerViewLayout, CGFloat)?
     private var didPause = false
     private var isPaused = true
+    private var dismissOnOrientationChange = false
+    private var keepSoundOnDismiss = false
     
     private var requiresDownload = false
     
@@ -174,7 +178,7 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
     
     init(context: AccountContext, presentationData: PresentationData, performAction: @escaping (GalleryControllerInteractionTapAction) -> Void, openActionOptions: @escaping (GalleryControllerInteractionTapAction) -> Void) {
         self.context = context
-        self.strings = presentationData.strings
+        self.presentationData = presentationData
         self.scrubberView = ChatVideoGalleryItemScrubberView()
         
         self.footerContentNode = ChatItemGalleryFooterContentNode(context: context, presentationData: presentationData)
@@ -260,6 +264,10 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, navigationBarHeight: CGFloat, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, navigationBarHeight: navigationBarHeight, transition: transition)
         
+        var dismiss = false
+        if let (previousLayout, _) = self.validLayout, self.dismissOnOrientationChange, previousLayout.size.width > previousLayout.size.height && previousLayout.size.height == layout.size.width {
+            dismiss = true
+        }
         self.validLayout = (layout, navigationBarHeight)
         
         let statusDiameter: CGFloat = 50.0
@@ -274,6 +282,10 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
                 pictureInPictureNode.updateLayout(placeholderSize, transition: transition)
             }
         }
+        
+        if dismiss {
+            self.dismiss()
+        }
     }
     
     func setupItem(_ item: UniversalVideoGalleryItem) {
@@ -281,6 +293,8 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
             if item.hideControls {
                 self.statusButtonNode.isHidden = true
             }
+            
+            self.dismissOnOrientationChange = item.landscape
             
             var disablePlayerControls = false
             var isAnimated = false
@@ -348,7 +362,7 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
                 if let file = file {
                     let status = messageMediaFileStatus(context: item.context, messageId: message.id, file: file)
                     if !isWebpage {
-                        self.scrubberView.setFetchStatusSignal(status, strings: self.strings, fileSize: file.size)
+                        self.scrubberView.setFetchStatusSignal(status, strings: self.presentationData.strings, decimalSeparator: self.presentationData.dateTimeFormat.decimalSeparator, fileSize: file.size)
                     }
                     
                     self.requiresDownload = !isMediaStreamable(message: message, media: file)
@@ -404,7 +418,7 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
                                     }
                                 }
                             default:
-                                if let content = item.content as? NativeVideoContent, !content.streamVideo {
+                                if let content = item.content as? NativeVideoContent, !content.streamVideo.enabled {
                                     if !content.enableSound {
                                         isPaused = false
                                     }
@@ -496,7 +510,7 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
     private func updateDisplayPlaceholder(_ displayPlaceholder: Bool) {
         if displayPlaceholder {
             if self.pictureInPictureNode == nil {
-                let pictureInPictureNode = UniversalVideoGalleryItemPictureInPictureNode(strings: self.strings)
+                let pictureInPictureNode = UniversalVideoGalleryItemPictureInPictureNode(strings: self.presentationData.strings)
                 pictureInPictureNode.isUserInteractionEnabled = false
                 self.pictureInPictureNode = pictureInPictureNode
                 self.insertSubnode(pictureInPictureNode, aboveSubnode: self.scrollNode)
@@ -543,13 +557,27 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
             
             if let videoNode = self.videoNode {
                 if isCentral {
-                    self.hideStatusNodeUntilCentrality = false
-                    if self.shouldAutoplayOnCentrality()  {
-                        self.initiallyActivated = true
-                        videoNode.playOnceWithSound(playAndRecord: false, actionAtEnd: .stop)
+                    var isAnimated = false
+                    if let item = self.item, let content = item.content as? NativeVideoContent {
+                        isAnimated = content.fileReference.media.isAnimated
                     }
-                } else if videoNode.ownsContentNode {
-                    videoNode.pause()
+                    
+                    self.hideStatusNodeUntilCentrality = false
+                    if videoNode.ownsContentNode {
+                        if isAnimated {
+                            videoNode.seek(0.0)
+                            videoNode.play()
+                        }
+                        else if self.shouldAutoplayOnCentrality()  {
+                            self.initiallyActivated = true
+                            videoNode.playOnceWithSound(playAndRecord: false, actionAtEnd: .stop)
+                        }
+                    }
+                } else {
+                    self.dismissOnOrientationChange = false
+                    if videoNode.ownsContentNode {
+                        videoNode.pause()
+                    }
                 }
             }
         }
@@ -587,7 +615,7 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
     override func activateAsInitial() {
         if let videoNode = self.videoNode, self.isCentral {
             self.initiallyActivated = true
-            
+
             var isAnimated = false
             if let item = self.item, let content = item.content as? NativeVideoContent {
                 isAnimated = content.fileReference.media.isAnimated
@@ -623,8 +651,8 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
             self.context.sharedContext.mediaManager.setOverlayVideoNode(nil)
         } else {
             var transformedFrame = node.0.view.convert(node.0.view.bounds, to: videoNode.view)
-            let transformedSuperFrame = node.0.view.convert(node.0.view.bounds, to: videoNode.view.superview)
-            let transformedSelfFrame = node.0.view.convert(node.0.view.bounds, to: self.view)
+            var transformedSuperFrame = node.0.view.convert(node.0.view.bounds, to: videoNode.view.superview)
+            var transformedSelfFrame = node.0.view.convert(node.0.view.bounds, to: self.view)
             let transformedCopyViewFinalFrame = videoNode.view.convert(videoNode.view.bounds, to: self.view)
             
             let (maybeSurfaceCopyView, _) = node.1()
@@ -640,6 +668,18 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
             if let contentSurface = surfaceCopyView.superview {
                 transformedSurfaceFrame = node.0.view.convert(node.0.view.bounds, to: contentSurface)
                 transformedSurfaceFinalFrame = videoNode.view.convert(videoNode.view.bounds, to: contentSurface)
+                
+                if let frame = transformedSurfaceFrame, frame.minY < 0.0 {
+                    transformedSurfaceFrame = CGRect(x: frame.minX, y: 0.0, width: frame.width, height: frame.height)
+                }
+            }
+            
+            if transformedSelfFrame.maxY < 0.0 {
+                transformedSelfFrame = CGRect(x: transformedSelfFrame.minX, y: 0.0, width: transformedSelfFrame.width, height: transformedSelfFrame.height)
+            }
+            
+            if transformedSuperFrame.maxY < 0.0 {
+                transformedSuperFrame = CGRect(x: transformedSuperFrame.minX, y: 0.0, width: transformedSuperFrame.width, height: transformedSuperFrame.height)
             }
             
             if let transformedSurfaceFrame = transformedSurfaceFrame {
@@ -679,9 +719,11 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
             
             videoNode.layer.animate(from: NSValue(caTransform3D: transform), to: NSValue(caTransform3D: videoNode.layer.transform), keyPath: "transform", timingFunction: kCAMediaTimingFunctionSpring, duration: 0.25)
             
-            Queue.mainQueue().after(0.001) {
-                videoNode.canAttachContent = true
-                self.updateDisplayPlaceholder(!videoNode.ownsContentNode)
+            if self.item?.fromPlayingVideo ?? false {
+                Queue.mainQueue().after(0.001) {
+                    videoNode.canAttachContent = true
+                    self.updateDisplayPlaceholder(!videoNode.ownsContentNode)
+                }
             }
             
             if let pictureInPictureNode = self.pictureInPictureNode {
@@ -769,7 +811,7 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
         
         if let interactiveMediaNode = node.0 as? ChatMessageInteractiveMediaNode, interactiveMediaNode.automaticPlayback ?? false, videoNode.hasAttachedContext {
             copyView.removeFromSuperview()
-            surfaceCopyView.removeFromSuperview()
+            //surfaceCopyView.removeFromSuperview()
             
             let previousFrame = videoNode.frame
             let previousSuperview = videoNode.view.superview
@@ -806,7 +848,9 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
             toTransform = CATransform3DScale(videoNode.layer.transform, transformScale, transformScale, 1.0)
             
             if videoNode.hasAttachedContext {
-                videoNode.continuePlayingWithoutSound()
+                if self.isPaused || !self.keepSoundOnDismiss {
+                    videoNode.continuePlayingWithoutSound()
+                }
             }
         } else {
             videoNode.allowsGroupOpacity = true

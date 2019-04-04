@@ -4,7 +4,6 @@ import SwiftSignalKit
 import Postbox
 import TelegramCore
 import LegacyComponents
-import CloudVeilSecurityManager
 
 private struct EditSettingsItemArguments {
     let context: AccountContext
@@ -29,6 +28,19 @@ private enum SettingsSection: Int32 {
     case addAccount
     case logOut
 }
+
+public enum EditSettingsEntryTag: ItemListItemTag {
+    case bio
+    
+    func isEqual(to other: ItemListItemTag) -> Bool {
+        if let other = other as? EditSettingsEntryTag, self == other {
+            return true
+        } else {
+            return false
+        }
+    }
+}
+
 
 private enum SettingsEntry: ItemListNodeEntry {
     case userInfo(PresentationTheme, PresentationStrings, PresentationDateTimeFormat, Peer?, CachedPeerData?, ItemListAvatarAndNameInfoItemState, ItemListAvatarAndNameInfoItemUpdatingAvatar?)
@@ -177,14 +189,8 @@ private enum SettingsEntry: ItemListNodeEntry {
                 return ItemListTextItem(theme: theme, text: .plain(text), sectionId: self.section)
             case let .bioText(theme, currentText, placeholder):
                 return ItemListMultilineInputItem(theme: theme, text: currentText, placeholder: placeholder, maxLength: ItemListMultilineInputItemTextLimit(value: 70, display: true), sectionId: self.section, style: .blocks, textUpdated: { updatedText in
-                    //CloudVeil start
-                    if MainController.shared.disableBioChange {
-                        return
-                    }
-                    //CloudVeil end
                     arguments.updateBioText(currentText, updatedText)
-                }, action: {
-                    
+                }, tag: EditSettingsEntryTag.bio, action: {
                 })
             case let .bioInfo(theme, text):
                 return ItemListTextItem(theme: theme, text: .plain(text), sectionId: self.section)
@@ -288,7 +294,7 @@ private func editSettingsEntries(presentationData: PresentationData, state: Edit
     return entries
 }
 
-func editSettingsController(context: AccountContext, currentName: ItemListAvatarAndNameInfoItemName, currentBioText: String, accountManager: AccountManager, canAddAccounts: Bool) -> ViewController {
+func editSettingsController(context: AccountContext, currentName: ItemListAvatarAndNameInfoItemName, currentBioText: String, accountManager: AccountManager, canAddAccounts: Bool, focusOnItemTag: EditSettingsEntryTag? = nil) -> ViewController {
     let initialState = EditSettingsState(editingName: currentName, editingBioText: currentBioText)
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -394,22 +400,22 @@ func editSettingsController(context: AccountContext, currentName: ItemListAvatar
     let peerView = context.account.viewTracker.peerView(context.account.peerId)
     
     let signal = combineLatest(context.sharedContext.presentationData, statePromise.get(), peerView)
-        |> map { presentationData, state, view -> (ItemListControllerState, (ItemListNodeState<SettingsEntry>, SettingsEntry.ItemGenerationArguments)) in
-            let rightNavigationButton: ItemListNavigationButton
-            if state.updatingName != nil || state.updatingBioText {
-                rightNavigationButton = ItemListNavigationButton(content: .none, style: .activity, enabled: true, action: {})
-            } else {
-                rightNavigationButton = ItemListNavigationButton(content: .text(presentationData.strings.Common_Done), style: .bold, enabled: true, action: {
-                    arguments.saveEditingState()
-                })
-            }
-            
-            let controllerState = ItemListControllerState(theme: presentationData.theme, title: .text(presentationData.strings.EditProfile_Title), leftNavigationButton: nil, rightNavigationButton: rightNavigationButton, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
-            let listState = ItemListNodeState(entries: editSettingsEntries(presentationData: presentationData, state: state, view: view, canAddAccounts: canAddAccounts), style: .blocks)
-            
-            return (controllerState, (listState, arguments))
-        } |> afterDisposed {
-            actionsDisposable.dispose()
+    |> map { presentationData, state, view -> (ItemListControllerState, (ItemListNodeState<SettingsEntry>, SettingsEntry.ItemGenerationArguments)) in
+        let rightNavigationButton: ItemListNavigationButton
+        if state.updatingName != nil || state.updatingBioText {
+            rightNavigationButton = ItemListNavigationButton(content: .none, style: .activity, enabled: true, action: {})
+        } else {
+            rightNavigationButton = ItemListNavigationButton(content: .text(presentationData.strings.Common_Done), style: .bold, enabled: true, action: {
+                arguments.saveEditingState()
+            })
+        }
+        
+        let controllerState = ItemListControllerState(theme: presentationData.theme, title: .text(presentationData.strings.EditProfile_Title), leftNavigationButton: nil, rightNavigationButton: rightNavigationButton, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
+        let listState = ItemListNodeState(entries: editSettingsEntries(presentationData: presentationData, state: state, view: view, canAddAccounts: canAddAccounts), style: .blocks, ensureVisibleItemTag: focusOnItemTag)
+        
+        return (controllerState, (listState, arguments))
+    } |> afterDisposed {
+        actionsDisposable.dispose()
     }
     
     let controller = ItemListController(context: context, state: signal, tabBarItem: nil)
@@ -447,11 +453,6 @@ func editSettingsController(context: AccountContext, currentName: ItemListAvatar
         }
     }
     changeProfilePhotoImpl = { [weak controller] in
-        //CloudVeil start
-        if MainController.shared.disableProfilePhotoChange {
-            return
-        }
-        //CloudVeil end
         let _ = (context.account.postbox.transaction { transaction -> (Peer?, SearchBotsConfiguration) in
             return (transaction.getPeer(context.account.peerId), currentSearchBotsConfiguration(transaction: transaction))
         } |> deliverOnMainQueue).start(next: { peer, searchBotsConfiguration in
@@ -526,12 +527,12 @@ func editSettingsController(context: AccountContext, currentName: ItemListAvatar
                     return mapResourceToAvatarSizes(postbox: context.account.postbox, resource: resource, representations: representations)
                 }) |> deliverOnMainQueue).start(next: { result in
                     switch result {
-                    case .complete:
-                        updateState {
-                            $0.withUpdatedUpdatingAvatar(nil)
-                        }
-                    case .progress:
-                        break
+                        case .complete:
+                            updateState {
+                                $0.withUpdatedUpdatingAvatar(nil)
+                            }
+                        case .progress:
+                            break
                     }
                 }))
             }

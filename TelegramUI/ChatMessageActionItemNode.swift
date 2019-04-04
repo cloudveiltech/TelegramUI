@@ -4,7 +4,6 @@ import Display
 import SwiftSignalKit
 import Postbox
 import TelegramCore
-import CloudVeilSecurityManager
 
 private let titleFont = Font.regular(13.0)
 private let titleBoldFont = Font.bold(13.0)
@@ -590,9 +589,7 @@ class ChatMessageActionBubbleContentNode: ChatMessageBubbleContentNode {
                                 let updateImageSignal = chatMessagePhoto(postbox: item.context.account.postbox, photoReference: .message(message: MessageReference(item.message), media: image))
 
                                 imageNode.setSignal(updateImageSignal)
-                                //CloudVeil start
-                                imageNode.isHidden = MainController.shared.disableProfilePhoto
-                                //CloudVeil end
+                                
                                 imageNode.frame = CGRect(origin: CGPoint(x: floorToScreenPixels((backgroundSize.width - imageSize.width) / 2.0), y: labelLayout.size.height + 10 + 2), size: imageSize)
                             } else if let imageNode = strongSelf.imageNode {
                                 imageNode.removeFromSupernode()

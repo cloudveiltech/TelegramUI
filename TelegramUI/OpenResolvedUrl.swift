@@ -29,8 +29,7 @@ func openResolvedUrl(_ resolvedUrl: ResolvedUrl, context: AccountContext, urlCon
             if let peerId = peerId {
                 openPeer(peerId, defaultNavigationForPeerId(peerId, navigation: navigation))
             } else {
-                
-                present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: presentationData.theme), title: nil, text: presentationData.strings.Resolve_ErrorNotFound, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), nil)
+                present(textAlertController(context: context, title: nil, text: presentationData.strings.Resolve_ErrorNotFound, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), nil)
             }
         case let .botStart(peerId, payload):
             openPeer(peerId, .withBotStartPayload(ChatControllerInitialBotStart(payload: payload, behavior: .interactive)))
@@ -77,7 +76,7 @@ func openResolvedUrl(_ resolvedUrl: ResolvedUrl, context: AccountContext, urlCon
             controller.sendSticker = sendFile
             present(controller, nil)
         case let .instantView(webpage, anchor):
-            navigationController?.pushViewController(InstantPageController(context: context, webPage: webpage, anchor: anchor))
+            navigationController?.pushViewController(InstantPageController(context: context, webPage: webpage, sourcePeerType: .channel, anchor: anchor))
         case let .join(link):
             dismissInput()
             present(JoinLinkPreviewController(context: context, link: link, navigateToPeer: { peerId in
@@ -109,7 +108,7 @@ func openResolvedUrl(_ resolvedUrl: ResolvedUrl, context: AccountContext, urlCon
                 })
                 if !found {
                     let presentationData = context.sharedContext.currentPresentationData.with { $0 }
-                    present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: presentationData.theme), title: nil, text: presentationData.strings.AuthCode_Alert(formattedConfirmationCode(code)).0, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), nil)
+                    present(textAlertController(context: context, title: nil, text: presentationData.strings.AuthCode_Alert(formattedConfirmationCode(code)).0, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), nil)
                 }
             }
         case let .cancelAccountReset(phone, hash):
@@ -131,7 +130,7 @@ func openResolvedUrl(_ resolvedUrl: ResolvedUrl, context: AccountContext, urlCon
                         text = presentationData.strings.Login_UnknownError
                 }
                 let presentationData = context.sharedContext.currentPresentationData.with { $0 }
-                present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: presentationData.theme), title: nil, text: text, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), nil)
+                present(textAlertController(context: context, title: nil, text: text, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), nil)
             })
             dismissInput()
         case let .share(url, text, to):

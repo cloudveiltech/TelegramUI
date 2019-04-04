@@ -131,14 +131,12 @@ class ContactListActionItem: ListViewItem {
             firstWithHeader = item.header != nil
         }
         if let nextItem = nextItem {
-            if let header = item.header {
-                if let nextItem = nextItem as? ContactsPeerItem {
-                    last = header.id != nextItem.header?.id
-                } else if let nextItem = nextItem as? ContactListActionItem {
-                    last = header.id != nextItem.header?.id
-                } else {
-                    last = true
-                }
+            if let nextItem = nextItem as? ContactsPeerItem {
+                last = item.header?.id != nextItem.header?.id
+            } else if let nextItem = nextItem as? ContactListActionItem {
+                last = item.header?.id != nextItem.header?.id
+            } else {
+                last = true
             }
         } else {
             last = true
@@ -157,6 +155,8 @@ class ContactListActionItemNode: ListViewItemNode {
     
     private let iconNode: ASImageNode
     private let titleNode: TextNode
+    
+    private let activateArea: AccessibilityAreaNode
     
     private var theme: PresentationTheme?
     
@@ -186,10 +186,18 @@ class ContactListActionItemNode: ListViewItemNode {
         self.highlightedBackgroundNode = ASDisplayNode()
         self.highlightedBackgroundNode.isLayerBacked = true
         
+        self.activateArea = AccessibilityAreaNode()
+        
         super.init(layerBacked: false, dynamicBounce: false)
         
         self.addSubnode(self.iconNode)
         self.addSubnode(self.titleNode)
+        self.addSubnode(self.activateArea)
+        
+        self.activateArea.activate = { [weak self] in
+            self?.item?.action()
+            return true
+        }
     }
     
     func asyncLayout() -> (_ item: ContactListActionItem, _ params: ListViewItemLayoutParams, _ firstWithHeader: Bool, _ last: Bool) -> (ListViewItemNodeLayout, () -> Void) {
@@ -220,6 +228,9 @@ class ContactListActionItemNode: ListViewItemNode {
                 if let strongSelf = self {
                     strongSelf.item = item
                     strongSelf.theme = item.theme
+                    
+                    strongSelf.activateArea.accessibilityLabel = item.title
+                    strongSelf.activateArea.frame = CGRect(origin: CGPoint(x: params.leftInset, y: 0.0), size: CGSize(width: layout.contentSize.width - params.leftInset - params.rightInset, height: layout.contentSize.height))
                     
                     if let _ = updatedTheme {
                         strongSelf.topStripeNode.backgroundColor = item.theme.list.itemPlainSeparatorColor
@@ -267,6 +278,9 @@ class ContactListActionItemNode: ListViewItemNode {
                     
                     strongSelf.topStripeNode.isHidden = true
                     strongSelf.bottomStripeNode.isHidden = hideBottomStripe
+                    if !hideBottomStripe {
+                        print("")
+                    }
                     
                     strongSelf.bottomStripeNode.frame = CGRect(origin: CGPoint(x: leftInset, y: contentSize.height - separatorHeight), size: CGSize(width: params.width - leftInset, height: separatorHeight))
                     

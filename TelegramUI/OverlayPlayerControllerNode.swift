@@ -10,7 +10,7 @@ final class OverlayPlayerControllerNode: ViewControllerTracingNode, UIGestureRec
     
     private let context: AccountContext
     private let peerId: PeerId
-    private let presentationData: PresentationData
+    private var presentationData: PresentationData
     private let type: MediaManagerPlayerType
     private let requestDismiss: () -> Void
     private let requestShare: (MessageId) -> Void
@@ -31,6 +31,7 @@ final class OverlayPlayerControllerNode: ViewControllerTracingNode, UIGestureRec
     
     private var validLayout: ContainerViewLayout?
     
+    private var presentationDataDisposable: Disposable?
     private let replacementHistoryNodeReadyDisposable = MetaDisposable()
     
     init(context: AccountContext, peerId: PeerId, type: MediaManagerPlayerType,  initialMessageId: MessageId, initialOrder: MusicPlaybackSettingsOrder, requestDismiss: @escaping () -> Void, requestShare: @escaping (MessageId) -> Void) {
@@ -54,7 +55,7 @@ final class OverlayPlayerControllerNode: ViewControllerTracingNode, UIGestureRec
             } else {
                 return false
             }
-        }, openPeer: { _, _, _ in }, openPeerMention: { _ in }, openMessageContextMenu: { _, _, _, _ in }, navigateToMessage: { _, _ in }, clickThroughMessage: { }, toggleMessagesSelection: { _, _ in }, sendMessage: { _ in }, sendSticker: { _, _ in }, sendGif: { _ in }, requestMessageActionCallback: { _, _, _ in }, activateSwitchInline: { _, _ in }, openUrl: { _, _, _ in }, shareCurrentLocation: {}, shareAccountContact: {}, sendBotCommand: { _, _ in }, openInstantPage: { _ in  }, openWallpaper: { _ in  }, openHashtag: { _, _ in }, updateInputState: { _ in }, updateInputMode: { _ in }, openMessageShareMenu: { _ in
+        }, openPeer: { _, _, _ in }, openPeerMention: { _ in }, openMessageContextMenu: { _, _, _, _ in }, navigateToMessage: { _, _ in }, clickThroughMessage: { }, toggleMessagesSelection: { _, _ in }, sendMessage: { _ in }, sendSticker: { _, _ in }, sendGif: { _ in }, requestMessageActionCallback: { _, _, _ in }, activateSwitchInline: { _, _ in }, openUrl: { _, _, _ in }, shareCurrentLocation: {}, shareAccountContact: {}, sendBotCommand: { _, _ in }, openInstantPage: { _, _ in  }, openWallpaper: { _ in  }, openHashtag: { _, _ in }, updateInputState: { _ in }, updateInputMode: { _ in }, openMessageShareMenu: { _ in
         }, presentController: { _, _ in }, navigationController: {
             return nil
         }, presentGlobalOverlayController: { _, _ in
@@ -71,6 +72,7 @@ final class OverlayPlayerControllerNode: ViewControllerTracingNode, UIGestureRec
         }, rateCall: { _, _ in
         }, requestSelectMessagePollOption: { _, _ in
         }, openAppStorePage: {
+        }, displayMessageTooltip: { _, _, _, _ in
         }, requestMessageUpdate: { _ in
         }, cancelInteractiveKeyboardGestures: {
         }, automaticMediaDownloadSettings: MediaAutoDownloadSettings.defaultSettings,
@@ -169,12 +171,21 @@ final class OverlayPlayerControllerNode: ViewControllerTracingNode, UIGestureRec
             return false
         }
         
+        self.presentationDataDisposable = context.sharedContext.presentationData.start(next: { [weak self] presentationData in
+            if let strongSelf = self {
+                if strongSelf.presentationData.theme !== presentationData.theme || strongSelf.presentationData.strings !== presentationData.strings {
+                    strongSelf.updatePresentationData(presentationData)
+                }
+            }
+        })
+        
         self.ready.set(self.historyNode.historyState.get() |> map { _ -> Bool in
             return true
         } |> take(1))
     }
     
     deinit {
+        self.presentationDataDisposable?.dispose()
         self.replacementHistoryNodeReadyDisposable.dispose()
     }
     
@@ -188,6 +199,13 @@ final class OverlayPlayerControllerNode: ViewControllerTracingNode, UIGestureRec
         panRecognizer.delaysTouchesBegan = false
         panRecognizer.cancelsTouchesInView = true
         self.view.addGestureRecognizer(panRecognizer)
+    }
+    
+    func updatePresentationData(_ presentationData: PresentationData) {
+        self.presentationData = presentationData
+        
+        self.historyBackgroundContentNode.backgroundColor = self.presentationData.theme.list.plainBackgroundColor
+        self.controlsNode.updateTheme(self.presentationData.theme)
     }
     
     func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {

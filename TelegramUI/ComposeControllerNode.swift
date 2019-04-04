@@ -4,7 +4,6 @@ import UIKit
 import Postbox
 import TelegramCore
 import SwiftSignalKit
-import CloudVeilSecurityManager
 
 final class ComposeControllerNode: ASDisplayNode {
     let contactListNode: ContactListNode
@@ -35,25 +34,17 @@ final class ComposeControllerNode: ASDisplayNode {
         var openCreateNewSecretChatImpl: (() -> Void)?
         var openCreateNewChannelImpl: (() -> Void)?
         
-        //CloudVeil start
-        var options = [
+        self.contactListNode = ContactListNode(context: context, presentation: .single(.natural(options: [
             ContactListAdditionalOption(title: self.presentationData.strings.Compose_NewGroup, icon: .generic(UIImage(bundleImageName: "Contact List/CreateGroupActionIcon")!), action: {
                 openCreateNewGroupImpl?()
-            })
-        ]
-        
-        if MainController.shared.isSecretChatAvailable {
-            options.append(ContactListAdditionalOption(title: self.presentationData.strings.Compose_NewEncryptedChat, icon: .generic(UIImage(bundleImageName: "Contact List/CreateSecretChatActionIcon")!), action: {
+            }),
+            ContactListAdditionalOption(title: self.presentationData.strings.Compose_NewEncryptedChat, icon: .generic(UIImage(bundleImageName: "Contact List/CreateSecretChatActionIcon")!), action: {
                 openCreateNewSecretChatImpl?()
-            }))
-        }
-        
-        options.append(ContactListAdditionalOption(title: self.presentationData.strings.Compose_NewChannel, icon: .generic(UIImage(bundleImageName: "Contact List/CreateChannelActionIcon")!), action: {
-        openCreateNewChannelImpl?()
-        }))
-        
-        self.contactListNode = ContactListNode(context: context, presentation: .single(.natural(options: options)), displayPermissionPlaceholder: false)
-        //CloudVeil end
+            }),
+            ContactListAdditionalOption(title: self.presentationData.strings.Compose_NewChannel, icon: .generic(UIImage(bundleImageName: "Contact List/CreateChannelActionIcon")!), action: {
+                openCreateNewChannelImpl?()
+            })
+        ])), displayPermissionPlaceholder: false)
         
         super.init()
         

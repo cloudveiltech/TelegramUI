@@ -13,7 +13,7 @@ private enum InnerState: Equatable {
     case authorized
 }
 
-public final class AuthorizationSequenceController: NavigationController {
+public final class AuthorizationSequenceController: NavigationController, MFMailComposeViewControllerDelegate {
     static func navigationBarTheme(_ theme: PresentationTheme) -> NavigationBarTheme {
         return NavigationBarTheme(buttonColor: theme.rootController.navigationBar.buttonColor, disabledButtonColor: theme.rootController.navigationBar.disabledButtonColor, primaryTextColor: theme.rootController.navigationBar.primaryTextColor, backgroundColor: .clear, separatorColor: .clear, badgeBackgroundColor: theme.rootController.navigationBar.badgeBackgroundColor, badgeStrokeColor: theme.rootController.navigationBar.badgeStrokeColor, badgeTextColor: theme.rootController.navigationBar.badgeTextColor)
     }
@@ -134,10 +134,10 @@ public final class AuthorizationSequenceController: NavigationController {
                     }).start()
                 }
             })
-            controller.loginWithNumber = { [weak self, weak controller] number in
+            controller.loginWithNumber = { [weak self, weak controller] number, syncContacts in
                 if let strongSelf = self {
                     controller?.inProgress = true
-                    strongSelf.actionDisposable.set((sendAuthorizationCode(accountManager: strongSelf.sharedContext.accountManager, account: strongSelf.account, phoneNumber: number, apiId: strongSelf.apiId, apiHash: strongSelf.apiHash) |> deliverOnMainQueue).start(next: { [weak self] account in
+                    strongSelf.actionDisposable.set((sendAuthorizationCode(accountManager: strongSelf.sharedContext.accountManager, account: strongSelf.account, phoneNumber: number, apiId: strongSelf.apiId, apiHash: strongSelf.apiHash, syncContacts: syncContacts) |> deliverOnMainQueue).start(next: { [weak self] account in
                         if let strongSelf = self {
                             controller?.inProgress = false
                             strongSelf.account = account
@@ -350,16 +350,9 @@ public final class AuthorizationSequenceController: NavigationController {
         controller.requestNextOption = { [weak self, weak controller] in
             if let strongSelf = self {
                 if nextType == nil {
-                    if MFMailComposeViewController.canSendMail() {
-                        let phoneFormatted = formatPhoneNumber(number)
-                        
-                        let composeController = MFMailComposeViewController()
-                        //composeController.mailComposeDelegate = strongSelf
-                        composeController.setToRecipients(["sms@stel.com"])
-                        composeController.setSubject(strongSelf.strings.Login_EmailCodeSubject(phoneFormatted).0)
-                        composeController.setMessageBody(strongSelf.strings.Login_EmailCodeBody(phoneFormatted).0, isHTML: false)
-                        
-                        controller?.view.window?.rootViewController?.present(composeController, animated: true, completion: nil)
+                    if MFMailComposeViewController.canSendMail(), let controller = controller {
+                        let formattedNumber = formatPhoneNumber(number)
+                        strongSelf.presentEmailComposeController(address: "sms@stel.com", subject: strongSelf.strings.Login_EmailCodeSubject(formattedNumber).0, body: strongSelf.strings.Login_EmailCodeBody(formattedNumber).0, from: controller)
                     } else {
                         controller?.present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: strongSelf.theme), title: nil, text: strongSelf.strings.Login_EmailNotConfiguredError, actions: [TextAlertAction(type: .defaultAction, title: strongSelf.strings.Common_OK, action: {})]), in: .window(.root))
                     }
@@ -406,7 +399,7 @@ public final class AuthorizationSequenceController: NavigationController {
         return controller
     }
     
-    private func passwordEntryController(hint: String, suggestReset: Bool) -> AuthorizationSequencePasswordEntryController {
+    private func passwordEntryController(hint: String, suggestReset: Bool, syncContacts: Bool) -> AuthorizationSequencePasswordEntryController {
         var currentController: AuthorizationSequencePasswordEntryController?
         for c in self.viewControllers {
             if let c = c as? AuthorizationSequencePasswordEntryController {
@@ -432,7 +425,7 @@ public final class AuthorizationSequenceController: NavigationController {
                 if let strongSelf = self {
                     controller?.inProgress = true
                     
-                    strongSelf.actionDisposable.set((authorizeWithPassword(accountManager: strongSelf.sharedContext.accountManager, account: strongSelf.account, password: password) |> deliverOnMainQueue).start(error: { error in
+                    strongSelf.actionDisposable.set((authorizeWithPassword(accountManager: strongSelf.sharedContext.accountManager, account: strongSelf.account, password: password, syncContacts: syncContacts) |> deliverOnMainQueue).start(error: { error in
                         Queue.mainQueue().async {
                             if let strongSelf = self, let controller = controller {
                                 controller.inProgress = false
@@ -465,8 +458,8 @@ public final class AuthorizationSequenceController: NavigationController {
                         switch option {
                             case let .email(pattern):
                                 let _ = (strongSelf.account.postbox.transaction { transaction -> Void in
-                                    if let state = transaction.getState() as? UnauthorizedAccountState, case let .passwordEntry(hint, number, code, _) = state.contents {
-                                        transaction.setState(UnauthorizedAccountState(isTestingEnvironment: strongSelf.account.testingEnvironment, masterDatacenterId: strongSelf.account.masterDatacenterId, contents: .passwordRecovery(hint: hint, number: number, code: code, emailPattern: pattern)))
+                                    if let state = transaction.getState() as? UnauthorizedAccountState, case let .passwordEntry(hint, number, code, _, syncContacts) = state.contents {
+                                        transaction.setState(UnauthorizedAccountState(isTestingEnvironment: strongSelf.account.testingEnvironment, masterDatacenterId: strongSelf.account.masterDatacenterId, contents: .passwordRecovery(hint: hint, number: number, code: code, emailPattern: pattern, syncContacts: syncContacts)))
                                     }
                                 }).start()
                             case .none:
@@ -475,7 +468,7 @@ public final class AuthorizationSequenceController: NavigationController {
                         }
                     }
                 }, error: { error in
-                    if let strongSelf = self, let strongController = controller {
+                    if let strongController = controller {
                         strongController.inProgress = false
                     }
                 }))
@@ -514,7 +507,7 @@ public final class AuthorizationSequenceController: NavigationController {
         return controller
     }
     
-    private func passwordRecoveryController(emailPattern: String) -> AuthorizationSequencePasswordRecoveryController {
+    private func passwordRecoveryController(emailPattern: String, syncContacts: Bool) -> AuthorizationSequencePasswordRecoveryController {
         var currentController: AuthorizationSequencePasswordRecoveryController?
         for c in self.viewControllers {
             if let c = c as? AuthorizationSequencePasswordRecoveryController {
@@ -540,7 +533,7 @@ public final class AuthorizationSequenceController: NavigationController {
                 if let strongSelf = self {
                     controller?.inProgress = true
                     
-                    strongSelf.actionDisposable.set((performPasswordRecovery(accountManager: strongSelf.sharedContext.accountManager, account: strongSelf.account, code: code) |> deliverOnMainQueue).start(error: { error in
+                    strongSelf.actionDisposable.set((performPasswordRecovery(accountManager: strongSelf.sharedContext.accountManager, account: strongSelf.account, code: code, syncContacts: syncContacts) |> deliverOnMainQueue).start(error: { error in
                         Queue.mainQueue().async {
                             if let strongSelf = self, let controller = controller {
                                 controller.inProgress = false
@@ -566,8 +559,8 @@ public final class AuthorizationSequenceController: NavigationController {
                     controller.present(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: strongSelf.theme), title: nil, text: strongSelf.strings.TwoStepAuth_RecoveryFailed, actions: [TextAlertAction(type: .defaultAction, title: strongSelf.strings.Common_OK, action: {})]), in: .window(.root))
                     let account = strongSelf.account
                     let _ = (strongSelf.account.postbox.transaction { transaction -> Void in
-                        if let state = transaction.getState() as? UnauthorizedAccountState, case let .passwordRecovery(hint, number, code, _) = state.contents {
-                            transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .passwordEntry(hint: hint, number: number, code: code, suggestReset: true)))
+                        if let state = transaction.getState() as? UnauthorizedAccountState, case let .passwordRecovery(hint, number, code, _, syncContacts) = state.contents {
+                            transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .passwordEntry(hint: hint, number: number, code: code, suggestReset: true, syncContacts: syncContacts)))
                         }
                     }).start()
                 }
@@ -722,7 +715,7 @@ public final class AuthorizationSequenceController: NavigationController {
                         }
                         controllers.append(self.phoneEntryController(countryCode: countryCode, number: number))
                         self.setViewControllers(controllers, animated: !self.viewControllers.isEmpty)
-                    case let .confirmationCodeEntry(number, type, _, timeout, nextType, termsOfService):
+                    case let .confirmationCodeEntry(number, type, _, timeout, nextType, termsOfService, syncContacts):
                         var controllers: [ViewController] = []
                         if !self.otherAccountPhoneNumbers.1.isEmpty {
                             controllers.append(self.splashController())
@@ -730,28 +723,28 @@ public final class AuthorizationSequenceController: NavigationController {
                         controllers.append(self.phoneEntryController(countryCode: defaultCountryCode(), number: ""))
                         controllers.append(self.codeEntryController(number: number, type: type, nextType: nextType, timeout: timeout, termsOfService: termsOfService))
                         self.setViewControllers(controllers, animated: !self.viewControllers.isEmpty)
-                    case let .passwordEntry(hint, _, _, suggestReset):
+                    case let .passwordEntry(hint, _, _, suggestReset, syncContacts):
                         var controllers: [ViewController] = []
                         if !self.otherAccountPhoneNumbers.1.isEmpty {
                             controllers.append(self.splashController())
                         }
-                        controllers.append(self.passwordEntryController(hint: hint, suggestReset: suggestReset))
+                        controllers.append(self.passwordEntryController(hint: hint, suggestReset: suggestReset, syncContacts: syncContacts))
                         self.setViewControllers(controllers, animated: !self.viewControllers.isEmpty)
-                    case let .passwordRecovery(_, _, _, emailPattern):
+                    case let .passwordRecovery(_, _, _, emailPattern, syncContacts):
                         var controllers: [ViewController] = []
                         if !self.otherAccountPhoneNumbers.1.isEmpty {
                             controllers.append(self.splashController())
                         }
-                        controllers.append(self.passwordRecoveryController(emailPattern: emailPattern))
+                        controllers.append(self.passwordRecoveryController(emailPattern: emailPattern, syncContacts: syncContacts))
                         self.setViewControllers(controllers, animated: !self.viewControllers.isEmpty)
-                    case let .awaitingAccountReset(protectedUntil, number):
+                    case let .awaitingAccountReset(protectedUntil, number, _):
                         var controllers: [ViewController] = []
                         if !self.otherAccountPhoneNumbers.1.isEmpty {
                             controllers.append(self.splashController())
                         }
                         controllers.append(self.awaitingAccountResetController(protectedUntil: protectedUntil, number: number))
                         self.setViewControllers(controllers, animated: !self.viewControllers.isEmpty)
-                    case let .signUp(_, _, _, firstName, lastName, termsOfService):
+                    case let .signUp(_, _, _, firstName, lastName, termsOfService, syncContacts):
                         var controllers: [ViewController] = []
                         if !self.otherAccountPhoneNumbers.1.isEmpty {
                             controllers.append(self.splashController())
@@ -782,6 +775,7 @@ public final class AuthorizationSequenceController: NavigationController {
             composeController.setToRecipients([address])
             composeController.setSubject(subject)
             composeController.setMessageBody(body, isHTML: false)
+            composeController.mailComposeDelegate = self
             
             controller.view.window?.rootViewController?.present(composeController, animated: true, completion: nil)
         } else {
@@ -789,12 +783,16 @@ public final class AuthorizationSequenceController: NavigationController {
         }
     }
     
+    public func mailComposeController(_ controller: MFMailComposeViewController, didFinishWith result: MFMailComposeResult, error: Error?) {
+        controller.dismiss(animated: true, completion: nil)
+    }
+    
     private func animateIn() {
         self.view.layer.animatePosition(from: CGPoint(x: self.view.layer.position.x, y: self.view.layer.position.y + self.view.layer.bounds.size.height), to: self.view.layer.position, duration: 0.5, timingFunction: kCAMediaTimingFunctionSpring)
     }
     
     private func animateOut(completion: (() -> Void)? = nil) {
-        self.view.layer.animatePosition(from: self.view.layer.position, to: CGPoint(x: self.view.layer.position.x, y: self.view.layer.position.y + self.view.layer.bounds.size.height), duration: 0.2, timingFunction: kCAMediaTimingFunctionEaseInEaseOut, removeOnCompletion: false, completion: { [weak self] _ in
+        self.view.layer.animatePosition(from: self.view.layer.position, to: CGPoint(x: self.view.layer.position.x, y: self.view.layer.position.y + self.view.layer.bounds.size.height), duration: 0.2, timingFunction: kCAMediaTimingFunctionEaseInEaseOut, removeOnCompletion: false, completion: { _ in
             completion?()
         })
     }

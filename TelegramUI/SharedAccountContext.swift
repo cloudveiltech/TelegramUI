@@ -66,6 +66,7 @@ private struct AccountAttributes: Equatable {
 public final class SharedAccountContext {
     let mainWindow: Window1?
     public let applicationBindings: TelegramApplicationBindings
+    public let basePath: String
     public let accountManager: AccountManager
     
     private let navigateToChatImpl: (AccountRecordId, PeerId, MessageId?) -> Void
@@ -145,10 +146,11 @@ public final class SharedAccountContext {
     public var presentGlobalController: (ViewController, Any?) -> Void = { _, _ in }
     public var presentCrossfadeController: () -> Void = {}
     
-    public init(mainWindow: Window1?, accountManager: AccountManager, applicationBindings: TelegramApplicationBindings, initialPresentationDataAndSettings: InitialPresentationDataAndSettings, networkArguments: NetworkInitializationArguments, rootPath: String, legacyBasePath: String?, legacyCache: LegacyCache?, apsNotificationToken: Signal<Data?, NoError>, voipNotificationToken: Signal<Data?, NoError>, setNotificationCall: @escaping (PresentationCall?) -> Void, navigateToChat: @escaping (AccountRecordId, PeerId, MessageId?) -> Void) {
+    public init(mainWindow: Window1?, basePath: String, accountManager: AccountManager, applicationBindings: TelegramApplicationBindings, initialPresentationDataAndSettings: InitialPresentationDataAndSettings, networkArguments: NetworkInitializationArguments, rootPath: String, legacyBasePath: String?, legacyCache: LegacyCache?, apsNotificationToken: Signal<Data?, NoError>, voipNotificationToken: Signal<Data?, NoError>, setNotificationCall: @escaping (PresentationCall?) -> Void, navigateToChat: @escaping (AccountRecordId, PeerId, MessageId?) -> Void) {
         assert(Queue.mainQueue().isCurrent())
         self.mainWindow = mainWindow
         self.applicationBindings = applicationBindings
+        self.basePath = basePath
         self.accountManager = accountManager
         self.navigateToChatImpl = navigateToChat
         
@@ -359,6 +361,7 @@ public final class SharedAccountContext {
                             assertionFailure()
                         }
                         self.activeAccountsValue!.accounts.append((account.id, account, accountRecord.2))
+                        account.resetStateManagement()
                         hadUpdates = true
                     } else {
                         let _ = accountManager.transaction({ transaction in
@@ -442,8 +445,8 @@ public final class SharedAccountContext {
             let callManager = PresentationCallManager(accountManager: self.accountManager, getDeviceAccessData: {
                 return (self.currentPresentationData.with { $0 }, { [weak self] c, a in
                     self?.presentGlobalController(c, a)
-                    }, {
-                        applicationBindings.openSettings()
+                }, {
+                    applicationBindings.openSettings()
                 })
             }, audioSession: self.mediaManager.audioSession, activeAccounts: self.activeAccounts |> map { _, accounts, _ in
                 return Array(accounts.map({ $0.1 }))
@@ -563,33 +566,82 @@ public final class SharedAccountContext {
         sandbox = false
         #endif
         
-        self.registeredNotificationTokensDisposable.set((self.activeAccounts
-        |> mapToSignal { _, activeAccounts, _ -> Signal<Never, NoError> in
+        let allAccounts = self.accountManager.sharedData(keys: [ApplicationSpecificSharedDataKeys.inAppNotificationSettings])
+        |> map { sharedData -> Bool in
+            let settings = sharedData.entries[ApplicationSpecificSharedDataKeys.inAppNotificationSettings] as? InAppNotificationSettings ?? InAppNotificationSettings.defaultSettings
+            return settings.displayNotificationsFromAllAccounts
+        }
+        |> distinctUntilChanged
+        
+        self.registeredNotificationTokensDisposable.set((combineLatest(allAccounts, self.activeAccounts)
+        |> mapToSignal { allAccounts, activeAccountsAndInfo -> Signal<Never, NoError> in
+            let (primary, activeAccounts, _) = activeAccountsAndInfo
             var applied: [Signal<Never, NoError>] = []
-            let activeProductionUserIds = activeAccounts.map({ $0.1 }).filter({ !$0.testingEnvironment }).map({ $0.peerId.id })
-            let activeTestingUserIds = activeAccounts.map({ $0.1 }).filter({ $0.testingEnvironment }).map({ $0.peerId.id })
-            for (_, account, _) in activeAccounts {
-                let appliedAps = self.apsNotificationToken
-                |> distinctUntilChanged(isEqual: { $0 == $1 })
-                |> mapToSignal { token -> Signal<Never, NoError> in
-                    guard let token = token else {
-                        return .complete()
-                    }
-                    let encrypt: Bool
-                    if #available(iOS 10.0, *) {
-                        encrypt = true
+            var activeProductionUserIds = activeAccounts.map({ $0.1 }).filter({ !$0.testingEnvironment }).map({ $0.peerId.id })
+            var activeTestingUserIds = activeAccounts.map({ $0.1 }).filter({ $0.testingEnvironment }).map({ $0.peerId.id })
+            
+            let allProductionUserIds = activeProductionUserIds
+            let allTestingUserIds = activeTestingUserIds
+            
+            if !allAccounts {
+                if let primary = primary {
+                    if !primary.testingEnvironment {
+                        activeProductionUserIds = [primary.peerId.id]
+                        activeTestingUserIds = []
                     } else {
-                        encrypt = false
+                        activeProductionUserIds = []
+                        activeTestingUserIds = [primary.peerId.id]
                     }
-                    return registerNotificationToken(account: account, token: token, type: .aps(encrypt: encrypt), sandbox: sandbox, otherAccountUserIds: (account.testingEnvironment ? activeTestingUserIds : activeProductionUserIds).filter({ $0 != account.peerId.id }))
+                } else {
+                    activeProductionUserIds = []
+                    activeTestingUserIds = []
                 }
-                let appliedVoip = self.voipNotificationToken
-                |> distinctUntilChanged(isEqual: { $0 == $1 })
-                |> mapToSignal { token -> Signal<Never, NoError> in
-                    guard let token = token else {
-                        return .complete()
+            }
+            
+            for (_, account, _) in activeAccounts {
+                let appliedAps: Signal<Never, NoError>
+                let appliedVoip: Signal<Never, NoError>
+                
+                if !activeProductionUserIds.contains(account.peerId.id) && !activeTestingUserIds.contains(account.peerId.id) {
+                    appliedAps = self.apsNotificationToken
+                    |> distinctUntilChanged(isEqual: { $0 == $1 })
+                    |> mapToSignal { token -> Signal<Never, NoError> in
+                        guard let token = token else {
+                            return .complete()
+                        }
+                        return unregisterNotificationToken(account: account, token: token, type: .aps(encrypt: false), otherAccountUserIds: (account.testingEnvironment ? allTestingUserIds : allProductionUserIds).filter({ $0 != account.peerId.id }))
                     }
-                    return registerNotificationToken(account: account, token: token, type: .voip, sandbox: sandbox, otherAccountUserIds: (account.testingEnvironment ? activeTestingUserIds : activeProductionUserIds).filter({ $0 != account.peerId.id }))
+                    appliedVoip = self.voipNotificationToken
+                    |> distinctUntilChanged(isEqual: { $0 == $1 })
+                    |> mapToSignal { token -> Signal<Never, NoError> in
+                        guard let token = token else {
+                            return .complete()
+                        }
+                        return unregisterNotificationToken(account: account, token: token, type: .voip, otherAccountUserIds: (account.testingEnvironment ? allTestingUserIds : allProductionUserIds).filter({ $0 != account.peerId.id }))
+                    }
+                } else {
+                    appliedAps = self.apsNotificationToken
+                    |> distinctUntilChanged(isEqual: { $0 == $1 })
+                    |> mapToSignal { token -> Signal<Never, NoError> in
+                        guard let token = token else {
+                            return .complete()
+                        }
+                        let encrypt: Bool
+                        if #available(iOS 10.0, *) {
+                            encrypt = true
+                        } else {
+                            encrypt = false
+                        }
+                        return registerNotificationToken(account: account, token: token, type: .aps(encrypt: encrypt), sandbox: sandbox, otherAccountUserIds: (account.testingEnvironment ? activeTestingUserIds : activeProductionUserIds).filter({ $0 != account.peerId.id }))
+                    }
+                    appliedVoip = self.voipNotificationToken
+                    |> distinctUntilChanged(isEqual: { $0 == $1 })
+                    |> mapToSignal { token -> Signal<Never, NoError> in
+                        guard let token = token else {
+                            return .complete()
+                        }
+                        return registerNotificationToken(account: account, token: token, type: .voip, sandbox: sandbox, otherAccountUserIds: (account.testingEnvironment ? activeTestingUserIds : activeProductionUserIds).filter({ $0 != account.peerId.id }))
+                    }
                 }
                 
                 applied.append(appliedAps)

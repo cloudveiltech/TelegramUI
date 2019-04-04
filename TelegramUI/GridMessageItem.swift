@@ -204,7 +204,7 @@ final class GridMessageItemNode: GridItemNode {
                 self.resourceStatus = nil
             } else if let file = media as? TelegramMediaFile, file.isVideo {
                 mediaDimensions = file.dimensions
-                self.imageNode.setSignal(mediaGridMessageVideo(postbox: context.account.postbox, videoReference: .message(message: MessageReference(item.message), media: file), synchronousLoad: synchronousLoad), attemptSynchronously: synchronousLoad)
+                self.imageNode.setSignal(mediaGridMessageVideo(postbox: context.account.postbox, videoReference: .message(message: MessageReference(item.message), media: file), synchronousLoad: synchronousLoad, autoFetchFullSizeThumbnail: true), attemptSynchronously: synchronousLoad)
                 
                 self.mediaBadgeNode.isHidden = false
                 
@@ -267,7 +267,7 @@ final class GridMessageItemNode: GridItemNode {
                                 badgeContent = .text(inset: 0.0, backgroundColor: mediaBadgeBackgroundColor, foregroundColor: mediaBadgeTextColor, text: NSAttributedString(string: durationString))
                             }
                             
-                            strongSelf.mediaBadgeNode.update(theme: item.theme, content: badgeContent, mediaDownloadState: mediaDownloadState, alignment: .right, animated: false)
+                            strongSelf.mediaBadgeNode.update(theme: item.theme, content: badgeContent, mediaDownloadState: mediaDownloadState, alignment: .right, animated: false, badgeAnimated: false)
                         }
                     }
                 }))
