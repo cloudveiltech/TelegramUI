@@ -284,7 +284,6 @@ public func chatMessageSticker(postbox: Postbox, file: TelegramMediaFile, small:
         signal = chatMessageStickerDatas(postbox: postbox, file: file, small: small, fetched: fetched, onlyFullSize: onlyFullSize, synchronousLoad: synchronousLoad)
     }
     //CloudVeil end
-    
     return signal |> map { (thumbnailData, fullSizeData, fullSizeComplete) in
         return { arguments in
             let context = DrawingContext(size: arguments.drawingSize, scale: arguments.scale ?? 0.0, clear: arguments.emptyColor == nil)
@@ -298,13 +297,19 @@ public func chatMessageSticker(postbox: Postbox, file: TelegramMediaFile, small:
             if let fullSizeData = fullSizeData, fullSizeComplete {
                 if let image = imageFromAJpeg(data: fullSizeData) {
                     fullSizeImage = image
+                    //CloudVeil start
+                } else if MainController.shared.disableStickers {
+                    fullSizeImage = (UIImage(data: fullSizeData), UIImage(data: fullSizeData)) as! (UIImage, UIImage)
                 }
+                //CloudVeil end
             }
             
             var thumbnailImage: (UIImage, UIImage)?
             if fullSizeImage == nil, let thumbnailData = thumbnailData {
                 if let image = imageFromAJpeg(data: thumbnailData) {
                     thumbnailImage = image
+                } else if MainController.shared.disableStickers {
+                    thumbnailImage = (UIImage(data: thumbnailData), UIImage(data: thumbnailData)) as! (UIImage, UIImage)
                 }
             }
             

@@ -464,7 +464,7 @@ func editSettingsController(context: AccountContext, currentName: ItemListAvatar
         if MainController.shared.disableProfilePhotoChange {
             return
         }
-        //CloudVeil end
+        //CloudVeil endl
         let _ = (context.account.postbox.transaction { transaction -> (Peer?, SearchBotsConfiguration) in
             return (transaction.getPeer(context.account.peerId), currentSearchBotsConfiguration(transaction: transaction))
         } |> deliverOnMainQueue).start(next: { peer, searchBotsConfiguration in
