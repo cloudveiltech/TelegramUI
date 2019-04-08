@@ -519,7 +519,7 @@ final class ChatListNode: ListView {
                                     return false
                                 }
                             }
-                            
+
                             if filter.contains(.onlyChannels) {
                                 if let peer = peer.chatMainPeer as? TelegramChannel, case .broadcast = peer.info {
                                     return true
@@ -527,7 +527,7 @@ final class ChatListNode: ListView {
                                     return false
                                 }
                             }
-                            
+
                             return true
                         }
                     default:
