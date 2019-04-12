@@ -704,7 +704,18 @@ public final class AuthorizationSequenceController: NavigationController, MFMail
                             if self.otherAccountPhoneNumbers.1.isEmpty {
                                 controllers.append(self.splashController())
                             } else {
-                                controllers.append(self.phoneEntryController(countryCode: defaultCountryCode(), number: ""))
+                                //CloudVeil start
+                                if self.otherAccountPhoneNumbers.1.isEmpty {
+                                    controllers.append(self.phoneEntryController(countryCode: defaultCountryCode(), number: ""))
+                                } else {
+                                    if !self.otherAccountPhoneNumbers.1.isEmpty {
+                                        let _ = (self.sharedContext.accountManager.transaction { transaction -> Void in
+                                            transaction.removeAuth()
+                                            self.dismiss()
+                                        }).start()
+                                    }
+                                }
+                                //CloudVeil end
                             }
                             self.setViewControllers(controllers, animated: !self.viewControllers.isEmpty)
                         }

@@ -119,7 +119,8 @@ private func currentDateTimeFormat(strings: PresentationStrings) -> Presentation
         timeFormat = .military
     }
     
-    let dateFormat: PresentationDateFormat
+    //Cloudveil patch presentation date
+    var dateFormat: PresentationDateFormat = .dayFirst
     var dateSeparator = "/"
     if let dateString = DateFormatter.dateFormat(fromTemplate: "MdY", options: 0, locale: locale) {
         for separator in [".", "/", "-", "/"] {
@@ -128,13 +129,13 @@ private func currentDateTimeFormat(strings: PresentationStrings) -> Presentation
                 break
             }
         }
+        if dateString.contains("M\(dateSeparator)d") {
+            dateFormat = .monthFirst
+        } else {
+            dateFormat = .dayFirst
+        }
     }
-    
-    if dateString.contains("M\(dateSeparator)d") {
-        dateFormat = .monthFirst
-    } else {
-        dateFormat = .dayFirst
-    }
+    //Cloudveil end    
     
     let decimalSeparator = locale.decimalSeparator ?? "."
     return PresentationDateTimeFormat(timeFormat: timeFormat, dateFormat: dateFormat, dateSeparator: dateSeparator, decimalSeparator: decimalSeparator)
