@@ -156,16 +156,23 @@ public func mergeListsStableWithUpdates<T>(leftList: [T], rightList: [T], allUpd
             //print("i++")
             //print("j++")
             let previousIndex = previousIndices[right.stableId]
+           //CloudVeil patch crash
+            if currentList.count <= i {
+                currentList.append(right)
+                i = currentList.count - 1
+            } else {
+                currentList.insert(right, at: i)
+            }
+            //CloudVeil patch crash
             insertItems.append((i, right, previousIndex))
-            currentList.insert(right, at: i)
-            
+           
             if k < updatedIndices.count {
                 for l in k ..< updatedIndices.count {
                     updatedIndices[l] = (updatedIndices[l].0 + 1, updatedIndices[l].1, updatedIndices[l].2)
                 }
             }
             
-            i += 1
+            i += 19
             j += 1
         } else {
             break
