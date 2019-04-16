@@ -818,9 +818,12 @@ public final class AuthorizationSequenceController: NavigationController, MFMail
     }
     
     public func dismiss() {
-        self.animateOut(completion: { [weak self] in
-            self?.presentingViewController?.dismiss(animated: false, completion: nil)
-        })
+        //Cloudveil patch crash
+        Queue.mainQueue().sync {
+            self.animateOut(completion: { [weak self] in
+                self?.presentingViewController?.dismiss(animated: false, completion: nil)
+            })
+        }
     }
 }
 
