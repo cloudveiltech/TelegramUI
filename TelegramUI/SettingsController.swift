@@ -742,23 +742,46 @@ public func settingsController(context: AccountContext, accountManager: AccountM
         let _ = (contextValue.get()
         |> deliverOnMainQueue
         |> take(1)).start(next: { context in
-            let supportPeer = Promise<PeerId?>()
-            supportPeer.set(supportPeerId(account: context.account))
-            let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+            //CloudVeil start open cloudveil bot
+            var resolveSignal = resolvePeerByName(account: context.account, name: "@cloudveilbot", ageLimit: 10)
             
-            let resolvedUrlPromise = Promise<ResolvedUrl>()
-            resolvedUrlPromise.set(resolvedUrl)
-            
+            let account = context.account
+            let disposable = MetaDisposable()
+            disposable.set((resolveSignal
+                |> take(1)
+                |> mapToSignal { peerId -> Signal<Peer?, NoError> in
+                    return account.postbox.transaction { transaction -> Peer? in
+                        if let peerId = peerId {
+                            return transaction.getPeer(peerId)
+                        } else {
+                            return nil
+                        }
+                    }
+                }
+                |> deliverOnMainQueue).start(next: { peer in
+                    if let peer = peer {
+                        pushControllerImpl?(ChatController(context: context, chatLocation: .peer(peer.id)))
+                    }
+                }))
+            /*
+             let supportPeer = Promise<PeerId?>()
+             supportPeer.set(supportPeerId(account: context.account))
+             let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+             
+             let resolvedUrlPromise = Promise<ResolvedUrl>()
+             resolvedUrlPromise.set(resolvedUrl)
             presentControllerImpl?(textAlertController(context: context, title: nil, text: presentationData.strings.Settings_FAQ_Intro, actions: [
                 TextAlertAction(type: .genericAction, title: presentationData.strings.Settings_FAQ_Button, action: {
                 openFaq(resolvedUrlPromise)
             }), TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {
-                supportPeerDisposable.set((supportPeer.get() |> take(1) |> deliverOnMainQueue).start(next: { peerId in
+                 supportPeerDisposable.set((supportPeer.get() |> take(1) |> deliverOnMainQueue).start(next: { peerId in
                     if let peerId = peerId {
-                        pushControllerImpl?(ChatController(context: context, chatLocation: .peer(peerId)))
+                       pushControllerImpl?(ChatController(context: context, chatLocation: .peer(peerId)))
                     }
                 }))
             })]), nil)
+             */
+             //CloudVeil end
         })
     }, openFaq: {
         let resolvedUrlPromise = Promise<ResolvedUrl>()
