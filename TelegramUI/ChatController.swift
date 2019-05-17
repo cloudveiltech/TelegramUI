@@ -3576,7 +3576,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
         var type = "secret chat"
         var conversationId = peerView.id.id
         if let peer = peerView as? TelegramChannel, case .group = peer.info {
-            type = "group"
+            type = "megagroup"
             title = peer.title
             userName = peer.username ?? ""
             conversationId = -conversationId
