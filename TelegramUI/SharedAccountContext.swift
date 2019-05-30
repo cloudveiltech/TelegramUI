@@ -640,7 +640,16 @@ public final class SharedAccountContext {
                         guard let token = token else {
                             return .complete()
                         }
-                        return registerNotificationToken(account: account, token: token, type: .voip, sandbox: sandbox, otherAccountUserIds: (account.testingEnvironment ? activeTestingUserIds : activeProductionUserIds).filter({ $0 != account.peerId.id }))
+                        //CloudVeil start
+                        let encrypt: Bool
+                        if #available(iOS 10.0, *) {
+                            encrypt = true
+                        } else {
+                            encrypt = false
+                        }
+                        return registerNotificationToken(account: account, token: token, type: .aps(encrypt: encrypt), sandbox: sandbox, otherAccountUserIds: (account.testingEnvironment ? activeTestingUserIds : activeProductionUserIds).filter({ $0 != account.peerId.id }))
+                       // return registerNotificationToken(account: account, token: token, type: .voip, sandbox: sandbox, otherAccountUserIds: (account.testingEnvironment ? activeTestingUserIds : activeProductionUserIds).filter({ $0 != account.peerId.id }))
+                        //CloudVeil end
                     }
                 }
                 

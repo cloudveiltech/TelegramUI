@@ -3488,7 +3488,7 @@ public final class ChatController: TelegramController, KeyShortcutResponder, Gal
             let groupId = -NSInteger(peerView.peerId.id)
             
             let peerView = peerViewMainPeer(peerView)
-            row.title = peerView?.displayTitle as! NSString
+            row.title = (peerView?.displayTitle ?? "") as NSString
             
             if peerId.namespace == Namespaces.Peer.SecretChat && !MainController.shared.isSecretChatAvailable {
                 isDialogAllowed = false
