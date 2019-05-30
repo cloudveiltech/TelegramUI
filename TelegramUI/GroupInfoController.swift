@@ -838,6 +838,12 @@ private func groupInfoEntries(account: Account, presentationData: PresentationDa
         entries.append(GroupInfoEntry.addMember(presentationData.theme, presentationData.strings.GroupInfo_AddParticipant, editing: state.editingState != nil && canRemoveAnyMember))
     }
     
+    //Cloudveil start
+    if view.cachedData == nil {
+        account.viewTracker.forceUpdateCachedPeerData(peerId: view.peerId)
+    }
+    //Cloudveil end
+    
     if let group = view.peers[view.peerId] as? TelegramGroup, let cachedGroupData = view.cachedData as? CachedGroupData, let participants = cachedGroupData.participants {
         var updatedParticipants = participants.participants
         let existingParticipantIds = Set(updatedParticipants.map { $0.peerId })
