@@ -621,7 +621,7 @@ public final class SharedAccountContext {
                     }
                 } else {
                     appliedAps = self.apsNotificationToken
-                    |> distinctUntilChanged(isEqual: { $0 == $1 })
+                 //   |> distinctUntilChanged(isEqual: { $0 == $1 })
                     |> mapToSignal { token -> Signal<Never, NoError> in
                         guard let token = token else {
                             return .complete()
@@ -635,21 +635,12 @@ public final class SharedAccountContext {
                         return registerNotificationToken(account: account, token: token, type: .aps(encrypt: encrypt), sandbox: sandbox, otherAccountUserIds: (account.testingEnvironment ? activeTestingUserIds : activeProductionUserIds).filter({ $0 != account.peerId.id }))
                     }
                     appliedVoip = self.voipNotificationToken
-                    |> distinctUntilChanged(isEqual: { $0 == $1 })
+              //      |> distinctUntilChanged(isEqual: { $0 == $1 })
                     |> mapToSignal { token -> Signal<Never, NoError> in
                         guard let token = token else {
                             return .complete()
                         }
-                        //CloudVeil start
-                        let encrypt: Bool
-                        if #available(iOS 10.0, *) {
-                            encrypt = true
-                        } else {
-                            encrypt = false
-                        }
-                        return registerNotificationToken(account: account, token: token, type: .aps(encrypt: encrypt), sandbox: sandbox, otherAccountUserIds: (account.testingEnvironment ? activeTestingUserIds : activeProductionUserIds).filter({ $0 != account.peerId.id }))
-                       // return registerNotificationToken(account: account, token: token, type: .voip, sandbox: sandbox, otherAccountUserIds: (account.testingEnvironment ? activeTestingUserIds : activeProductionUserIds).filter({ $0 != account.peerId.id }))
-                        //CloudVeil end
+                        return registerNotificationToken(account: account, token: token, type: .voip, sandbox: sandbox, otherAccountUserIds: (account.testingEnvironment ? activeTestingUserIds : activeProductionUserIds).filter({ $0 != account.peerId.id }))
                     }
                 }
                 
