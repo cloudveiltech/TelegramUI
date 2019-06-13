@@ -1,14 +1,36 @@
 import Foundation
-import UIKit
+import CoreText
 
 extension UnicodeScalar {
     var isEmoji: Bool {
-        switch value {
-            case 0x3030, 0x00AE, 0x00A9, // Special Characters
-                0x1D000 ... 0x1F77F, // Emoticons
-                0x2100 ... 0x27BF, // Misc symbols and Dingbats
-                0xFE00 ... 0xFE0F, // Variation Selectors
-                0x1F900 ... 0x1F9FF: // Supplemental Symbols and Pictographs
+        switch self.value {
+            case 0x1F600...0x1F64F, // Emoticons
+            0x1F300...0x1F5FF, // Misc Symbols and Pictographs
+            0x1F680...0x1F6FF, // Transport and Map
+            0x1F1E6...0x1F1FF, // Regional country flags
+            0xE0020...0xE007F, // Tags
+            0xFE00...0xFE0F, // Variation Selectors
+            0x1F900...0x1F9FF, // Supplemental Symbols and Pictographs
+            0x1F018...0x1F0F5,
+            0x1F200...0x1F270, // Various asian characters
+            65024...65039, // Variation selector
+            9100...9300, // Misc items
+            8400...8447: // Combining Diacritical Marks for Symbols
+                return true
+            case 0x1f004:
+                return true
+            case 0x270b, 0x2728:
+                return true
+            default:
+                return false
+        }
+    }
+    
+    var maybeEmoji: Bool {
+        switch self.value {
+            case 0x2600...0x26FF, // Misc symbols
+            0x2700...0x27BF, // Dingbats
+            0x1F100...0x1F1FF: //Enclosed Alphanumeric
                 return true
             default:
                 return false
@@ -16,7 +38,7 @@ extension UnicodeScalar {
     }
     
     var isZeroWidthJoiner: Bool {
-        return value == 8205
+        return self.value == 8205
     }
 }
 
@@ -29,72 +51,88 @@ extension String {
         return t
     }
     
-    var glyphCount: Int {
-        let richText = NSAttributedString(string: self)
-        let line = CTLineCreateWithAttributedString(richText)
-        return CTLineGetGlyphCount(line)
-    }
-    
     var isSingleEmoji: Bool {
-        return glyphCount == 1 && containsEmoji
+        return self.emojis.count == 1 && self.containsEmoji
     }
     
     var containsEmoji: Bool {
-        return !unicodeScalars.filter { $0.isEmoji }.isEmpty
+        return self.unicodeScalars.contains { $0.isEmoji }
     }
     
     var containsOnlyEmoji: Bool {
-        return unicodeScalars.first(where: { !$0.isEmoji && !$0.isZeroWidthJoiner }) == nil
-    }
-    
-    // The next tricks are mostly to demonstrate how tricky it can be to determine emoji's
-    // If anyone has suggestions how to improve this, please let me know
-    var emojiString: String {
-        return emojiScalars.map { String($0) }.reduce("", +)
-    }
-    
-    var firstEmoji: String {
-        if let first = emojiScalars.first {
-            return String(first)
-        } else {
-            return ""
+        guard !self.isEmpty else {
+            return false
         }
+        var nextShouldBeFE0F = false
+        for scalar in self.unicodeScalars {
+            if nextShouldBeFE0F {
+                if scalar.value == 0xfe0f {
+                    nextShouldBeFE0F = false
+                    continue
+                } else {
+                    return false
+                }
+            }
+            if !scalar.isEmoji && scalar.maybeEmoji {
+                nextShouldBeFE0F = true
+            }
+            else if !scalar.isEmoji && !scalar.isZeroWidthJoiner {
+                return false
+            }
+        }
+        return !nextShouldBeFE0F
     }
     
     var emojis: [String] {
-        var scalars: [[UnicodeScalar]] = []
-        var currentScalarSet: [UnicodeScalar] = []
-        var previousScalar: UnicodeScalar?
-        
-        for scalar in emojiScalars {
-            if let prev = previousScalar, !prev.isZeroWidthJoiner && !scalar.isZeroWidthJoiner {
-                scalars.append(currentScalarSet)
-                currentScalarSet = []
+        var emojis: [String] = []
+        self.enumerateSubstrings(in: self.startIndex ..< self.endIndex, options: .byComposedCharacterSequences) { substring, _, _, _ in
+            if let substring = substring {
+                emojis.append(substring)
             }
-            currentScalarSet.append(scalar)
-            
-            previousScalar = scalar
         }
-        
-        scalars.append(currentScalarSet)
-        
-        return scalars.map { $0.map{ String($0) } .reduce("", +) }
+        return emojis
     }
     
-    fileprivate var emojiScalars: [UnicodeScalar] {
-        var chars: [UnicodeScalar] = []
-        var previous: UnicodeScalar?
-        for cur in unicodeScalars {
-            if let previous = previous, previous.isZeroWidthJoiner && cur.isEmoji {
-                chars.append(previous)
-                chars.append(cur)
-            } else if cur.isEmoji {
-                chars.append(cur)
+    var normalizedEmoji: String {
+        var string = ""
+        
+        var nextShouldBeFE0F = false
+        for scalar in self.unicodeScalars {
+            if nextShouldBeFE0F {
+                if scalar.value != 0xfe0f {
+                    string.unicodeScalars.append("\u{fe0f}")
+                }
+                nextShouldBeFE0F = false
             }
-            
-            previous = cur
+            string.unicodeScalars.append(scalar)
+            if !scalar.isEmoji && scalar.maybeEmoji {
+                nextShouldBeFE0F = true
+            }
         }
         
-        return chars
+        if nextShouldBeFE0F {
+            string.unicodeScalars.append("\u{fe0f}")
+        }
+        
+        return string
+    }
+    
+    var basicEmoji: String {
+        let fitzCodes: [UInt32] = [
+            0x1f3fb,
+            0x1f3fc,
+            0x1f3fd,
+            0x1f3fe,
+            0x1f3ff
+        ]
+        
+        var string = ""
+        for scalar in self.unicodeScalars {
+            if fitzCodes.contains(scalar.value) {
+                continue
+            }
+            string.unicodeScalars.append(scalar)
+        }
+        return string
     }
 }

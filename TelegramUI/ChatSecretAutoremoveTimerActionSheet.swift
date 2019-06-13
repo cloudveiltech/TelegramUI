@@ -97,9 +97,9 @@ private let timeoutValuesInitial: [Int32] = [
     24 * 60 * 60,
     7 * 24 * 60 * 60
 ]
-//CloudVeil end
 
 private var timeoutValues: [Int32] = [
+    //CloudVeil end
     0,
     1,
     2,
@@ -144,7 +144,6 @@ private final class AutoremoveTimeoutSelectorItemNode: ActionSheetItemNode, UIPi
         self.view.addSubview(self.pickerView)
         
         self.pickerView.reloadAllComponents()
-        
         //CloudVeil start
         timeoutValues.removeAll()
         for i in 0 ..< timeoutValuesInitial.count {

@@ -43,7 +43,7 @@ final class ComposeControllerNode: ASDisplayNode {
         ]
         
         if MainController.shared.isSecretChatAvailable {
-            options.append( ContactListAdditionalOption(title: self.presentationData.strings.Compose_NewEncryptedChat, icon: .generic(UIImage(bundleImageName: "Contact List/CreateSecretChatActionIcon")!), action: {
+            options.append(ContactListAdditionalOption(title: self.presentationData.strings.Compose_NewEncryptedChat, icon: .generic(UIImage(bundleImageName: "Contact List/CreateSecretChatActionIcon")!), action: {
                 openCreateNewSecretChatImpl?()
             }))
         }
@@ -52,7 +52,7 @@ final class ComposeControllerNode: ASDisplayNode {
             openCreateNewChannelImpl?()
         }))
         
-        self.contactListNode = ContactListNode(context: context, presentation: .single(.natural(options: options)), displayPermissionPlaceholder: false)
+        self.contactListNode = ContactListNode(context: context, presentation: .single(.natural(options: options, includeChatList: false)), displayPermissionPlaceholder: false)
         //CloudVeil end
         
         super.init()
@@ -121,7 +121,7 @@ final class ComposeControllerNode: ASDisplayNode {
         }
         
         self.searchDisplayController = SearchDisplayController(presentationData: self.presentationData, contentNode: ContactsSearchContainerNode(context: self.context, onlyWriteable: false, categories: [.cloudContacts, .global], openPeer: { [weak self] peer in
-            if let requestOpenPeerFromSearch = self?.requestOpenPeerFromSearch, case let .peer(peer, _) = peer {
+            if let requestOpenPeerFromSearch = self?.requestOpenPeerFromSearch, case let .peer(peer, _, _) = peer {
                 requestOpenPeerFromSearch(peer.id)
             }
         }), cancel: { [weak self] in

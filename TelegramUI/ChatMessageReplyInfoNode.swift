@@ -47,7 +47,7 @@ class ChatMessageReplyInfoNode: ASDisplayNode {
         let previousMediaReference = maybeNode?.previousMediaReference
         
         return { presentationData, strings, context, type, message, constrainedSize in
-            let titleString = message.author?.displayTitle(strings: strings, displayOrder: presentationData.nameDisplayOrder) ?? strings.User_DeletedAccount
+            let titleString = message.effectiveAuthor?.displayTitle(strings: strings, displayOrder: presentationData.nameDisplayOrder) ?? strings.User_DeletedAccount
             let (textString, isMedia) = descriptionStringForMessage(message, strings: strings, nameDisplayOrder: presentationData.nameDisplayOrder, accountPeerId: context.account.peerId)
             
             let placeholderColor: UIColor =  message.effectivelyIncoming(context.account.peerId) ? presentationData.theme.theme.chat.bubble.incomingMediaPlaceholderColor : presentationData.theme.theme.chat.bubble.outgoingMediaPlaceholderColor
@@ -67,7 +67,9 @@ class ChatMessageReplyInfoNode: ASDisplayNode {
                 case .standalone:
                     let serviceColor = serviceMessageColorComponents(theme: presentationData.theme.theme, wallpaper: presentationData.theme.wallpaper)
                     titleColor = serviceColor.primaryText
-                    lineImage = PresentationResourcesChat.chatServiceVerticalLineImage(presentationData.theme.theme)
+                    
+                    let graphics = PresentationResourcesChat.additionalGraphics(presentationData.theme.theme, wallpaper: presentationData.theme.wallpaper)
+                    lineImage = graphics.chatServiceVerticalLineImage
                     textColor = titleColor
             }
             

@@ -189,7 +189,6 @@ private enum SettingsEntry: ItemListNodeEntry {
             case let .userInfoNotice(theme, text):
                 return ItemListTextItem(theme: theme, text: .plain(text), sectionId: self.section)
             case let .bioText(theme, currentText, placeholder):
-                
                 return ItemListMultilineInputItem(theme: theme, text: currentText, placeholder: placeholder, maxLength: ItemListMultilineInputItemTextLimit(value: 70, display: true), sectionId: self.section, style: .blocks, textUpdated: { updatedText in
                     //CloudVeil start
                     if MainController.shared.disableBioChange {
@@ -312,6 +311,7 @@ func editSettingsController(context: AccountContext, currentName: ItemListAvatar
     var pushControllerImpl: ((ViewController) -> Void)?
     var presentControllerImpl: ((ViewController, Any?) -> Void)?
     var dismissImpl: (() -> Void)?
+    var errorImpl: (() -> Void)?
     
     let actionsDisposable = DisposableSet()
     
@@ -335,7 +335,7 @@ func editSettingsController(context: AccountContext, currentName: ItemListAvatar
     var changeProfilePhotoImpl: (() -> Void)?
     
     var getNavigationController: (() -> NavigationController?)?
-        
+    
     let arguments = EditSettingsItemArguments(context: context, accountManager: accountManager, avatarAndNameInfoContext: avatarAndNameInfoContext, avatarTapAction: {
         var updating = false
         updateState {
@@ -363,6 +363,7 @@ func editSettingsController(context: AccountContext, currentName: ItemListAvatar
     }, saveEditingState: {
         var updateName: ItemListAvatarAndNameInfoItemName?
         var updateBio: String?
+        var failed = false
         updateState { state in
             if state.editingName != currentName {
                 updateName = state.editingName
@@ -370,12 +371,24 @@ func editSettingsController(context: AccountContext, currentName: ItemListAvatar
             if state.editingBioText != currentBioText {
                 updateBio = state.editingBioText
             }
+            
+            if (updateBio?.count ?? 0) > 70 {
+                failed = true
+                return state
+            }
+            
             if updateName != nil || updateBio != nil {
                 return state.withUpdatedUpdatingName(state.editingName).withUpdatedUpdatingBioText(true)
             } else {
                 return state
             }
         }
+        
+        guard !failed else {
+            errorImpl?()
+            return
+        }
+        
         var updateNameSignal: Signal<Void, NoError> = .complete()
         if let updateName = updateName, case let .personName(firstName, lastName) = updateName {
             updateNameSignal = updateAccountPeerName(account: context.account, firstName: firstName, lastName: lastName)
@@ -464,7 +477,7 @@ func editSettingsController(context: AccountContext, currentName: ItemListAvatar
         if MainController.shared.disableProfilePhotoChange {
             return
         }
-        //CloudVeil endl
+        //CloudVeil end
         let _ = (context.account.postbox.transaction { transaction -> (Peer?, SearchBotsConfiguration) in
             return (transaction.getPeer(context.account.peerId), currentSearchBotsConfiguration(transaction: transaction))
         } |> deliverOnMainQueue).start(next: { peer, searchBotsConfiguration in
@@ -583,6 +596,16 @@ func editSettingsController(context: AccountContext, currentName: ItemListAvatar
                 }
             }
         })
+    }
+    
+    let hapticFeedback = HapticFeedback()
+    errorImpl = { [weak controller] in
+        hapticFeedback.error()
+        controller?.forEachItemNode { itemNode in
+            if let itemNode = itemNode as? ItemListMultilineInputItemNode {
+                itemNode.animateError()
+            }
+        }
     }
     
     getNavigationController = { [weak controller] in

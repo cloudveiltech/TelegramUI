@@ -23,11 +23,12 @@ class UniversalVideoGalleryItem: GalleryItem {
     let hideControls: Bool
     let fromPlayingVideo: Bool
     let landscape: Bool
+    let timecode: Double?
     let playbackCompleted: () -> Void
     let performAction: (GalleryControllerInteractionTapAction) -> Void
     let openActionOptions: (GalleryControllerInteractionTapAction) -> Void
     
-    init(context: AccountContext, presentationData: PresentationData, content: UniversalVideoContent, originData: GalleryItemOriginData?, indexData: GalleryItemIndexData?, contentInfo: UniversalVideoGalleryItemContentInfo?, caption: NSAttributedString, credit: NSAttributedString? = nil, hideControls: Bool = false, fromPlayingVideo: Bool = false, landscape: Bool = false, playbackCompleted: @escaping () -> Void = {}, performAction: @escaping (GalleryControllerInteractionTapAction) -> Void, openActionOptions: @escaping (GalleryControllerInteractionTapAction) -> Void) {
+    init(context: AccountContext, presentationData: PresentationData, content: UniversalVideoContent, originData: GalleryItemOriginData?, indexData: GalleryItemIndexData?, contentInfo: UniversalVideoGalleryItemContentInfo?, caption: NSAttributedString, credit: NSAttributedString? = nil, hideControls: Bool = false, fromPlayingVideo: Bool = false, landscape: Bool = false, timecode: Double? = nil, playbackCompleted: @escaping () -> Void = {}, performAction: @escaping (GalleryControllerInteractionTapAction) -> Void, openActionOptions: @escaping (GalleryControllerInteractionTapAction) -> Void) {
         self.context = context
         self.presentationData = presentationData
         self.content = content
@@ -39,6 +40,7 @@ class UniversalVideoGalleryItem: GalleryItem {
         self.hideControls = hideControls
         self.fromPlayingVideo = fromPlayingVideo
         self.landscape = landscape
+        self.timecode = timecode
         self.playbackCompleted = playbackCompleted
         self.performAction = performAction
         self.openActionOptions = openActionOptions
@@ -195,8 +197,8 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
         
         super.init()
         
-        self.scrubberView.seek = { [weak self] timestamp in
-            self?.videoNode?.seek(timestamp)
+        self.scrubberView.seek = { [weak self] timecode in
+            self?.videoNode?.seek(timecode)
         }
         
         self.statusButtonNode.addSubnode(self.statusNode)
@@ -612,19 +614,35 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
         }
     }
     
+    override func processAction(_ action: GalleryControllerItemNodeAction) {
+        guard let videoNode = self.videoNode else {
+            return
+        }
+        
+        switch action {
+            case let .timecode(timecode):
+                videoNode.seek(timecode)
+        }
+    }
+    
     override func activateAsInitial() {
         if let videoNode = self.videoNode, self.isCentral {
             self.initiallyActivated = true
 
             var isAnimated = false
+            var seek = MediaPlayerSeek.start
             if let item = self.item, let content = item.content as? NativeVideoContent {
                 isAnimated = content.fileReference.media.isAnimated
+                if let time = item.timecode {
+                    seek = .timecode(time)
+                }
             }
             if isAnimated {
                 videoNode.seek(0.0)
                 videoNode.play()
             } else {
-                videoNode.playOnceWithSound(playAndRecord: false, actionAtEnd: .stop)
+                self.hideStatusNodeUntilCentrality = false
+                videoNode.playOnceWithSound(playAndRecord: false, seek: seek, actionAtEnd: .stop)
             }
         }
     }
@@ -811,7 +829,6 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
         
         if let interactiveMediaNode = node.0 as? ChatMessageInteractiveMediaNode, interactiveMediaNode.automaticPlayback ?? false, videoNode.hasAttachedContext {
             copyView.removeFromSuperview()
-            //surfaceCopyView.removeFromSuperview()
             
             let previousFrame = videoNode.frame
             let previousSuperview = videoNode.view.superview
@@ -842,6 +859,33 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
                     })
                 }
             }
+        
+            let transformScale: CGFloat = initialScale * targetScale
+            fromTransform = CATransform3DScale(videoNode.layer.transform, initialScale, initialScale, 1.0)
+            toTransform = CATransform3DScale(videoNode.layer.transform, transformScale, transformScale, 1.0)
+            
+            if videoNode.hasAttachedContext {
+                if self.isPaused || !self.keepSoundOnDismiss {
+                    videoNode.continuePlayingWithoutSound()
+                }
+            }
+        } else if let _ = node.0 as? InstantPagePlayableVideoNode, videoNode.hasAttachedContext {
+            copyView.removeFromSuperview()
+            
+            let previousFrame = videoNode.frame
+            let previousSuperview = videoNode.view.superview
+            addToTransitionSurface(videoNode.view)
+            videoNode.view.superview?.bringSubview(toFront: videoNode.view)
+            
+            if let previousSuperview = previousSuperview {
+                videoNode.frame = previousSuperview.convert(previousFrame, to: videoNode.view.superview)
+                transformedSuperFrame = transformedSuperFrame.offsetBy(dx: videoNode.position.x - previousFrame.center.x, dy: videoNode.position.y - previousFrame.center.y)
+            }
+            
+            let initialScale = min(videoNode.layer.bounds.width / node.0.view.bounds.width, videoNode.layer.bounds.height / node.0.view.bounds.height)
+            let targetScale = max(transformedFrame.size.width / videoNode.layer.bounds.size.width, transformedFrame.size.height / videoNode.layer.bounds.size.height)
+            
+            videoNode.backgroundColor = .clear
         
             let transformScale: CGFloat = initialScale * targetScale
             fromTransform = CATransform3DScale(videoNode.layer.transform, initialScale, initialScale, 1.0)
@@ -932,8 +976,6 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
         videoNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.25, removeOnCompletion: false)
         
         self.statusButtonNode.layer.animatePosition(from: self.statusButtonNode.layer.position, to: CGPoint(x: transformedSelfFrame.midX, y: transformedSelfFrame.midY), duration: 0.25, timingFunction: kCAMediaTimingFunctionSpring, removeOnCompletion: false, completion: { _ in
-            //positionCompleted = true
-            //intermediateCompletion()
         })
         self.statusButtonNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.25, removeOnCompletion: false)
         self.statusButtonNode.layer.animateScale(from: 1.0, to: 0.2, duration: 0.25, removeOnCompletion: false)
@@ -979,18 +1021,18 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
             if let fetchStatus = self.fetchStatus {
                 switch fetchStatus {
                     case .Local:
-                        videoNode.playOnceWithSound(playAndRecord: false, seekToStart: .none, actionAtEnd: .stop)
+                        videoNode.playOnceWithSound(playAndRecord: false, seek: .none, actionAtEnd: .stop)
                     case .Remote:
                         if self.requiresDownload {
                             self.fetchControls?.fetch()
                         } else {
-                            videoNode.playOnceWithSound(playAndRecord: false, seekToStart: .none, actionAtEnd: .stop)
+                            videoNode.playOnceWithSound(playAndRecord: false, seek: .none, actionAtEnd: .stop)
                         }
                     case .Fetching:
                         self.fetchControls?.cancel()
                 }
             } else {
-                videoNode.playOnceWithSound(playAndRecord: false, seekToStart: .none, actionAtEnd: .stop)
+                videoNode.playOnceWithSound(playAndRecord: false, seek: .none, actionAtEnd: .stop)
             }
         }
     }

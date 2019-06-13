@@ -61,10 +61,12 @@ final class HashtagSearchController: TelegramController {
         }, deletePeer: { _ in
         }, updatePeerGrouping: { _, _ in
         }, togglePeerMarkedUnread: { _, _ in
+        }, toggleArchivedFolderHiddenByDefault: {
         })
         
         let previousSearchItems = Atomic<[ChatListSearchEntry]?>(value: nil)
-        self.transitionDisposable = (foundMessages |> deliverOn(self.queue)).start(next: { [weak self] entries in
+        self.transitionDisposable = (foundMessages
+        |> deliverOnMainQueue).start(next: { [weak self] entries in
             if let strongSelf = self {
                 let previousEntries = previousSearchItems.swap(entries)
                 

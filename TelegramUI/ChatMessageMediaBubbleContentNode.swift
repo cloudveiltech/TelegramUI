@@ -167,11 +167,11 @@ class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
                             sentViaBot = true
                         }
                     }
-                    if let author = item.message.author as? TelegramUser, author.botInfo != nil {
+                    if let author = item.message.author as? TelegramUser, author.botInfo != nil || author.flags.contains(.isSupport) {
                         sentViaBot = true
                     }
                     
-                    let dateText = stringForMessageTimestampStatus(message: item.message, dateTimeFormat: item.presentationData.dateTimeFormat, nameDisplayOrder: item.presentationData.nameDisplayOrder, strings: item.presentationData.strings)
+                    let dateText = stringForMessageTimestampStatus(accountPeerId: item.context.account.peerId, message: item.message, dateTimeFormat: item.presentationData.dateTimeFormat, nameDisplayOrder: item.presentationData.nameDisplayOrder, strings: item.presentationData.strings)
                     
                     let statusType: ChatMessageDateAndStatusType?
                     switch position {
@@ -199,7 +199,7 @@ class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
                     var statusApply: ((Bool) -> Void)?
                     
                     if let statusType = statusType {
-                        let (size, apply) = statusLayout(item.presentationData.theme, item.presentationData.strings, edited && !sentViaBot, viewCount, dateText, statusType, CGSize(width: imageSize.width - 30.0, height: CGFloat.greatestFiniteMagnitude))
+                        let (size, apply) = statusLayout(item.presentationData, edited && !sentViaBot, viewCount, dateText, statusType, CGSize(width: imageSize.width - 30.0, height: CGFloat.greatestFiniteMagnitude))
                         statusSize = size
                         statusApply = apply
                     }
@@ -324,7 +324,7 @@ class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
         return mediaHidden
     }
     
-    override func playMediaWithSound() -> (() -> Void, Bool, Bool, Bool, ASDisplayNode?)? {
+    override func playMediaWithSound() -> ((Double?) -> Void, Bool, Bool, Bool, ASDisplayNode?)? {
         return self.interactiveImageNode.playMediaWithSound()
     }
     

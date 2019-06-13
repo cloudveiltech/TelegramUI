@@ -299,7 +299,9 @@ class ChatControllerNode: ASDisplayNode, UIScrollViewDelegate {
                     
                     var messages: [EnqueueMessage] = []
                     
-                    for text in breakChatInputText(trimChatInputText(effectivePresentationInterfaceState.interfaceState.composeInputState.inputText)) {
+                    let inputText = convertMarkdownToAttributes(effectivePresentationInterfaceState.interfaceState.composeInputState.inputText)
+                    
+                    for text in breakChatInputText(trimChatInputText(inputText)) {
                         if text.length != 0 {
                             var attributes: [MessageAttribute] = []
                             let entities = generateTextEntities(text.string, enabledTypes: .all, currentEntities: generateChatInputTextEntities(text))
@@ -731,7 +733,7 @@ class ChatControllerNode: ASDisplayNode, UIScrollViewDelegate {
             case let .animated(animationDuration, animationCurve):
                 duration = animationDuration
                 switch animationCurve {
-                    case .easeInOut:
+                    case .easeInOut, .custom:
                         break
                     case .spring:
                         curve = 7
@@ -1381,7 +1383,11 @@ class ChatControllerNode: ASDisplayNode, UIScrollViewDelegate {
             if let peer = chatPresentationInterfaceState.renderedPeer?.peer, let restrictionTextValue = peer.restrictionText, !restrictionTextValue.isEmpty {
                 restrictionText = restrictionTextValue
             } else if chatPresentationInterfaceState.isNotAccessible {
-                restrictionText = chatPresentationInterfaceState.strings.Channel_ErrorAccessDenied
+                if let peer = chatPresentationInterfaceState.renderedPeer?.peer as? TelegramChannel, case .broadcast = peer.info {
+                    restrictionText = chatPresentationInterfaceState.strings.Channel_ErrorAccessDenied
+                } else {
+                    restrictionText = chatPresentationInterfaceState.strings.Group_ErrorAccessDenied
+                }
             }
             
             if let restrictionText = restrictionText {
@@ -1486,43 +1492,6 @@ class ChatControllerNode: ASDisplayNode, UIScrollViewDelegate {
             }
         }
         self.historyNode.prefetchManager.updateAutoDownloadSettings(settings)
-    }
-    
-    func playFirstMediaWithSound() {
-        var actions: [(CGFloat, Bool, () -> Void)] = []
-        var hasUnconsumed = false
-        self.historyNode.forEachVisibleItemNode { itemNode in
-            if let itemNode = itemNode as? ChatMessageItemView, let (action, _, _, isUnconsumed, _) = itemNode.playMediaWithSound() {
-                if case let .visible(fraction) = itemNode.visibility, fraction > 0.7 {
-                    actions.insert((fraction, isUnconsumed, action), at: 0)
-                    if !hasUnconsumed && isUnconsumed {
-                        hasUnconsumed = true
-                    }
-                }
-            }
-        }
-        for (_, isUnconsumed, action) in actions {
-            if (!hasUnconsumed || isUnconsumed) {
-                action()
-                break
-            }
-        }
-    }
-    
-    func openCurrentPlayingWithSoundMedia() {
-        var result: (Message?, ListViewItemNode)?
-        self.historyNode.forEachVisibleItemNode { itemNode in
-            if let itemNode = itemNode as? ChatMessageItemView, let (_, soundEnabled, _, _, _) = itemNode.playMediaWithSound(), soundEnabled {
-                if case let .visible(fraction) = itemNode.visibility, fraction > 0.7 {
-                    result = (itemNode.item?.message, itemNode)
-                }
-            }
-        }
-        if let (message, _) = result {
-            if let message = message {
-                let _ = self.controllerInteraction.openMessage(message, .landscape)
-            }
-        }
     }
     
     var isInputViewFocused: Bool {

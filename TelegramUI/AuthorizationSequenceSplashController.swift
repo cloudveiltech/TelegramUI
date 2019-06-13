@@ -116,15 +116,16 @@ final class AuthorizationSequenceSplashController: ViewController {
         super.viewWillAppear(animated)
         self.addControllerIfNeeded()
         controller.viewWillAppear(false)
-        //CloudVeil start
-        showFirstRunPopup()
-        //CloudVeil end
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         
         controller.viewDidAppear(animated)
+        
+        //CloudVeil start
+        showFirstRunPopup()
+        //CloudVeil end
     }
     
     override func viewWillDisappear(_ animated: Bool) {
@@ -197,7 +198,7 @@ final class AuthorizationSequenceSplashController: ViewController {
                     }
                     let stringsValue: PresentationStrings
                     if let localizationSettings = localizationSettings {
-                        stringsValue = PresentationStrings(primaryComponent: PresentationStringsComponent(languageCode: localizationSettings.primaryComponent.languageCode, localizedName: localizationSettings.primaryComponent.localizedName, pluralizationRulesCode: localizationSettings.primaryComponent.customPluralizationCode, dict: dictFromLocalization(localizationSettings.primaryComponent.localization)), secondaryComponent: localizationSettings.secondaryComponent.flatMap({ PresentationStringsComponent(languageCode: $0.languageCode, localizedName: $0.localizedName, pluralizationRulesCode: $0.customPluralizationCode, dict: dictFromLocalization($0.localization)) }))
+                        stringsValue = PresentationStrings(primaryComponent: PresentationStringsComponent(languageCode: localizationSettings.primaryComponent.languageCode, localizedName: localizationSettings.primaryComponent.localizedName, pluralizationRulesCode: localizationSettings.primaryComponent.customPluralizationCode, dict: dictFromLocalization(localizationSettings.primaryComponent.localization)), secondaryComponent: localizationSettings.secondaryComponent.flatMap({ PresentationStringsComponent(languageCode: $0.languageCode, localizedName: $0.localizedName, pluralizationRulesCode: $0.customPluralizationCode, dict: dictFromLocalization($0.localization)) }), groupingSeparator: "")
                     } else {
                         stringsValue = defaultPresentationStrings
                     }

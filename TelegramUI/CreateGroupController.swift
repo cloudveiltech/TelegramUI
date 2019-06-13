@@ -150,7 +150,7 @@ private enum CreateGroupEntry: ItemListNodeEntry {
                     arguments.changeProfilePhoto()
                 })
             case let .member(_, theme, strings, dateTimeFormat, nameDisplayOrder, peer, presence):
-                return ItemListPeerItem(theme: theme, strings: strings, dateTimeFormat: dateTimeFormat, nameDisplayOrder: nameDisplayOrder, account: arguments.account, peer: peer, presence: presence, text: .presence, label: .none, editing: ItemListPeerItemEditing(editable: false, editing: false, revealed: false), switchValue: nil, enabled: true, sectionId: self.section, action: nil, setPeerIdWithRevealedOptions: { _, _ in }, removePeer: { _ in })
+                return ItemListPeerItem(theme: theme, strings: strings, dateTimeFormat: dateTimeFormat, nameDisplayOrder: nameDisplayOrder, account: arguments.account, peer: peer, presence: presence, text: .presence, label: .none, editing: ItemListPeerItemEditing(editable: false, editing: false, revealed: false), switchValue: nil, enabled: true, selectable: true, sectionId: self.section, action: nil, setPeerIdWithRevealedOptions: { _, _ in }, removePeer: { _ in })
         }
     }
 }
@@ -219,8 +219,8 @@ private func createGroupEntries(presentationData: PresentationData, state: Creat
     return entries
 }
 
-public func createGroupController(context: AccountContext, peerIds: [PeerId]) -> ViewController {
-    let initialState = CreateGroupState(creating: false, editingName: .title(title: "", type: .group), avatar: nil)
+public func createGroupController(context: AccountContext, peerIds: [PeerId], initialTitle: String? = nil, supergroup: Bool = false, completion: ((PeerId, @escaping () -> Void) -> Void)? = nil) -> ViewController {
+    let initialState = CreateGroupState(creating: false, editingName: .title(title: initialTitle ?? "", type: .group), avatar: nil)
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
     let updateState: ((CreateGroupState) -> CreateGroupState) -> Void = { f in
@@ -228,6 +228,7 @@ public func createGroupController(context: AccountContext, peerIds: [PeerId]) ->
     }
     
     var replaceControllerImpl: ((ViewController) -> Void)?
+    var dismissImpl: (() -> Void)?
     var presentControllerImpl: ((ViewController, Any?) -> Void)?
     var endEditingImpl: (() -> Void)?
     
@@ -255,7 +256,39 @@ public func createGroupController(context: AccountContext, peerIds: [PeerId]) ->
                 return current
             }
             endEditingImpl?()
-            actionsDisposable.add((createGroup(account: context.account, title: title, peerIds: peerIds)
+            
+            let createSignal: Signal<PeerId?, CreateGroupError>
+            if supergroup {
+                createSignal = createSupergroup(account: context.account, title: title, description: nil)
+                |> introduceError(CreateGroupError.self)
+            } else {
+                createSignal = createGroup(account: context.account, title: title, peerIds: peerIds)
+            }
+            
+            actionsDisposable.add((createSignal
+            |> mapToSignal { peerId -> Signal<PeerId?, CreateGroupError> in
+                guard let peerId = peerId else {
+                    return .single(nil)
+                }
+                let updatingAvatar = stateValue.with {
+                    return $0.avatar
+                }
+                if let _ = updatingAvatar {
+                    return updatePeerPhoto(postbox: context.account.postbox, network: context.account.network, stateManager: context.account.stateManager, accountPeerId: context.account.peerId, peerId: peerId, photo: uploadedAvatar.get(), mapResourceToAvatarSizes: { resource, representations in
+                        return mapResourceToAvatarSizes(postbox: context.account.postbox, resource: resource, representations: representations)
+                    })
+                    |> ignoreValues
+                    |> `catch` { _ -> Signal<Never, CreateGroupError> in
+                        return .complete()
+                    }
+                    |> mapToSignal { _ -> Signal<PeerId?, CreateGroupError> in
+                        return .complete()
+                    }
+                    |> then(.single(peerId))
+                } else {
+                    return .single(peerId)
+                }
+            }
             |> deliverOnMainQueue
             |> afterDisposed {
                 Queue.mainQueue().async {
@@ -267,17 +300,25 @@ public func createGroupController(context: AccountContext, peerIds: [PeerId]) ->
                 }
             }).start(next: { peerId in
                 if let peerId = peerId {
-                    let updatingAvatar = stateValue.with {
-                        return $0.avatar
+                    if let completion = completion {
+                        completion(peerId, {
+                            dismissImpl?()
+                        })
+                    } else {
+                        let controller = ChatController(context: context, chatLocation: .peer(peerId))
+                        replaceControllerImpl?(controller)
                     }
-                    if let _ = updatingAvatar {
-                        let _ = updatePeerPhoto(postbox: context.account.postbox, network: context.account.network, stateManager: context.account.stateManager, accountPeerId: context.account.peerId, peerId: peerId, photo: uploadedAvatar.get(), mapResourceToAvatarSizes: { resource, representations in
-                            return mapResourceToAvatarSizes(postbox: context.account.postbox, resource: resource, representations: representations)
-                        }).start()
-                    }
-                    let controller = ChatController(context: context, chatLocation: .peer(peerId))
-                    replaceControllerImpl?(controller)
                 }
+            }, error: { error in
+                let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+                let text: String
+                switch error {
+                    case .privacy:
+                        text = presentationData.strings.Privacy_GroupsAndChannels_InviteToChannelMultipleError
+                    case .generic:
+                        text = presentationData.strings.Login_UnknownError
+                }
+                presentControllerImpl?(standardTextAlertController(theme: AlertControllerTheme(presentationTheme: presentationData.theme), title: nil, text: text, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), nil)
             }))
         }
     }, changeProfilePhoto: {
@@ -321,8 +362,9 @@ public func createGroupController(context: AccountContext, peerIds: [PeerId]) ->
             }
             
             //CloudVeil start
-            let mixin = TGMediaAvatarMenuMixin(context: legacyController.context, parentController: emptyController, hasSearchButton: !MainController.SecurityStaticSettings.disableGlobalSearch, hasDeleteButton: stateValue.with({ $0.avatar }) != nil, hasViewButton: false, personalPhoto: false, saveEditedPhotos: false, saveCapturedMedia: false, signup: false)!
+            let mixin = TGMediaAvatarMenuMixin(context: legacyController.context, parentController: emptyController, hasSearchButton:  !MainController.SecurityStaticSettings.disableGlobalSearch, hasDeleteButton: stateValue.with({ $0.avatar }) != nil, hasViewButton: false, personalPhoto: false, saveEditedPhotos: false, saveCapturedMedia: false, signup: false)!
             //CloudVeil end
+            
             let _ = currentAvatarMixin.swap(mixin)
             mixin.requestSearchController = { assetsController in
                 let controller = WebSearchController(context: context, peer: peer, configuration: searchBotsConfiguration, mode: .avatar(initialQuery: title, completion: { result in
@@ -383,6 +425,11 @@ public func createGroupController(context: AccountContext, peerIds: [PeerId]) ->
     let controller = ItemListController(context: context, state: signal)
     replaceControllerImpl = { [weak controller] value in
         (controller?.navigationController as? NavigationController)?.replaceAllButRootController(value, animated: true)
+    }
+    dismissImpl = { [weak controller] in
+        if let controller = controller {
+            (controller.navigationController as? NavigationController)?.filterController(controller, animated: true)
+        }
     }
     presentControllerImpl = { [weak controller] c, a in
         controller?.present(c, in: .window(.root), with: a)

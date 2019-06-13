@@ -4,6 +4,7 @@ import SwiftSignalKit
 import Postbox
 import TelegramCore
 import CloudVeilSecurityManager
+
 import LegacyComponents
 
 private struct CreateChannelArguments {
@@ -297,9 +298,11 @@ public func createChannelController(context: AccountContext) -> ViewController {
                     }
                 }
             }
+            
             //CloudVeil start
             let mixin = TGMediaAvatarMenuMixin(context: legacyController.context, parentController: emptyController, hasSearchButton: !MainController.SecurityStaticSettings.disableGlobalSearch, hasDeleteButton: stateValue.with({ $0.avatar }) != nil, hasViewButton: false, personalPhoto: false, saveEditedPhotos: false, saveCapturedMedia: false, signup: false)!
             //CloudVeil end
+            
             let _ = currentAvatarMixin.swap(mixin)
             mixin.requestSearchController = { assetsController in
                 let controller = WebSearchController(context: context, peer: peer, configuration: searchBotsConfiguration, mode: .avatar(initialQuery: title, completion: { result in

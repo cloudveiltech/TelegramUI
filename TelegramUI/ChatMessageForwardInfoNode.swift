@@ -2,6 +2,7 @@ import Foundation
 import AsyncDisplayKit
 import Display
 import Postbox
+import TelegramCore
 
 private let prefixFont = Font.regular(13.0)
 private let peerFont = Font.medium(13.0)
@@ -13,6 +14,7 @@ enum ChatMessageForwardInfoType {
 
 class ChatMessageForwardInfoNode: ASDisplayNode {
     private var textNode: TextNode?
+    private var credibilityIconNode: ASImageNode?
     
     override init() {
         super.init()
@@ -48,14 +50,45 @@ class ChatMessageForwardInfoNode: ASDisplayNode {
                     completeSourceString = strings.Message_ForwardedMessageShort(peerString)
             }
             
+            var currentCredibilityIconImage: UIImage?
+            var highlight = true
+            if let peer = peer {
+                if let channel = peer as? TelegramChannel, channel.username == nil {
+                    if case .member = channel.participationStatus {
+                    } else {
+                        highlight = false
+                    }
+                }
+                
+                if peer.isScam {
+                    switch type {
+                        case let .bubble(incoming):
+                            currentCredibilityIconImage = PresentationResourcesChatList.scamIcon(presentationData.theme.theme, type: incoming ? .regular : .outgoing)
+                        case .standalone:
+                            currentCredibilityIconImage = PresentationResourcesChatList.scamIcon(presentationData.theme.theme, type: .service)
+                    }
+                } else {
+                    currentCredibilityIconImage = nil
+                }
+            } else {
+                highlight = false
+            }
+            
             let completeString: NSString = completeSourceString.0 as NSString
             let string = NSMutableAttributedString(string: completeString as String, attributes: [NSAttributedStringKey.foregroundColor: titleColor, NSAttributedStringKey.font: prefixFont])
-            if peer != nil, let range = completeSourceString.1.first?.1 {
+            if highlight, let range = completeSourceString.1.first?.1 {
                 string.addAttributes([NSAttributedStringKey.font: peerFont], range: range)
             }
-            let (textLayout, textApply) = textNodeLayout(TextNodeLayoutArguments(attributedString: string, backgroundColor: nil, maximumNumberOfLines: 2, truncationType: .end, constrainedSize: constrainedSize, alignment: .natural, cutout: nil, insets: UIEdgeInsets()))
             
-            return (textLayout.size, {
+            var credibilityIconWidth: CGFloat = 0.0
+            if let icon = currentCredibilityIconImage {
+                credibilityIconWidth += icon.size.width + 4.0
+            }
+            
+            let (textLayout, textApply) = textNodeLayout(TextNodeLayoutArguments(attributedString: string, backgroundColor: nil, maximumNumberOfLines: 2, truncationType: .end, constrainedSize: CGSize(width: constrainedSize.width - credibilityIconWidth, height: constrainedSize.height), alignment: .natural, cutout: nil, insets: UIEdgeInsets()))
+            
+            return (CGSize(width: textLayout.size.width + credibilityIconWidth, height: textLayout.size.height), {
+
                 let node: ChatMessageForwardInfoNode
                 if let maybeNode = maybeNode {
                     node = maybeNode
@@ -70,6 +103,22 @@ class ChatMessageForwardInfoNode: ASDisplayNode {
                     node.addSubnode(textNode)
                 }
                 textNode.frame = CGRect(origin: CGPoint(), size: textLayout.size)
+                
+                if let credibilityIconImage = currentCredibilityIconImage {
+                    let credibilityIconNode: ASImageNode
+                    if let node = node.credibilityIconNode {
+                        credibilityIconNode = node
+                    } else {
+                        credibilityIconNode = ASImageNode()
+                        node.credibilityIconNode = credibilityIconNode
+                        node.addSubnode(credibilityIconNode)
+                    }
+                    credibilityIconNode.frame = CGRect(origin: CGPoint(x: textLayout.size.width + 4.0, y: 16.0), size: credibilityIconImage.size)
+                    credibilityIconNode.image = credibilityIconImage
+                } else {
+                    node.credibilityIconNode?.removeFromSupernode()
+                    node.credibilityIconNode = nil
+                }
                 
                 return node
             })

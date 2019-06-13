@@ -253,7 +253,7 @@ class ChatMessageInteractiveInstantVideoNode: ASDisplayNode {
            //     sentViaBot = true
            // }
             
-            let dateText = stringForMessageTimestampStatus(message: item.message, dateTimeFormat: item.presentationData.dateTimeFormat, nameDisplayOrder: item.presentationData.nameDisplayOrder, strings: item.presentationData.strings, format: .regular)
+            let dateText = stringForMessageTimestampStatus(accountPeerId: item.context.account.peerId, message: item.message, dateTimeFormat: item.presentationData.dateTimeFormat, nameDisplayOrder: item.presentationData.nameDisplayOrder, strings: item.presentationData.strings, format: .regular)
             
             let maxDateAndStatusWidth: CGFloat
             if case .bubble = statusDisplayType {
@@ -261,7 +261,7 @@ class ChatMessageInteractiveInstantVideoNode: ASDisplayNode {
             } else {
                 maxDateAndStatusWidth = width - videoFrame.midX - 85.0
             }
-            let (dateAndStatusSize, dateAndStatusApply) = makeDateAndStatusLayout(item.presentationData.theme, item.presentationData.strings, edited && !sentViaBot, viewCount, dateText, statusType, CGSize(width: max(1.0, maxDateAndStatusWidth), height: CGFloat.greatestFiniteMagnitude))
+            let (dateAndStatusSize, dateAndStatusApply) = makeDateAndStatusLayout(item.presentationData, edited && !sentViaBot, viewCount, dateText, statusType, CGSize(width: max(1.0, maxDateAndStatusWidth), height: CGFloat.greatestFiniteMagnitude))
             
             var contentSize = imageSize
             var dateAndStatusOverflow = false
@@ -749,7 +749,7 @@ class ChatMessageInteractiveInstantVideoNode: ASDisplayNode {
         }
     }
     
-    func playMediaWithSound() -> (action: () -> Void, soundEnabled: Bool, isVideoMessage: Bool, isUnread: Bool, badgeNode: ASDisplayNode?)? {
+    func playMediaWithSound() -> (action: (Double?) -> Void, soundEnabled: Bool, isVideoMessage: Bool, isUnread: Bool, badgeNode: ASDisplayNode?)? {
         if let item = self.item {
             var isUnconsumed = false
             for attribute in item.message.attributes {
@@ -761,7 +761,7 @@ class ChatMessageInteractiveInstantVideoNode: ASDisplayNode {
                 }
             }
             
-            return ({
+            return ({ _ in
                 if !self.infoBackgroundNode.alpha.isZero {
                     let _ = (item.context.sharedContext.mediaManager.globalMediaPlayerState
                     |> take(1)

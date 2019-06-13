@@ -34,8 +34,10 @@ public final class TelegramApplicationBindings {
     public let getWindowHost: () -> WindowHost?
     public let presentNativeController: (UIViewController) -> Void
     public let dismissNativeController: () -> Void
+    public let getAlternateIconName: () -> String?
+    public let requestSetAlternateIconName: (String?, @escaping (Bool) -> Void) -> Void
     
-    public init(isMainApp: Bool, containerPath: String, appSpecificScheme: String, openUrl: @escaping (String) -> Void, openUniversalUrl: @escaping (String, TelegramApplicationOpenUrlCompletion) -> Void, canOpenUrl: @escaping (String) -> Bool, getTopWindow: @escaping () -> UIWindow?, displayNotification: @escaping (String) -> Void, applicationInForeground: Signal<Bool, NoError>, applicationIsActive: Signal<Bool, NoError>, clearMessageNotifications: @escaping ([MessageId]) -> Void, pushIdleTimerExtension: @escaping () -> Disposable, openSettings: @escaping () -> Void, openAppStorePage: @escaping () -> Void, registerForNotifications: @escaping (@escaping (Bool) -> Void) -> Void, requestSiriAuthorization: @escaping (@escaping (Bool) -> Void) -> Void, siriAuthorization: @escaping () -> AccessType, getWindowHost: @escaping () -> WindowHost?, presentNativeController: @escaping (UIViewController) -> Void, dismissNativeController: @escaping () -> Void) {
+    public init(isMainApp: Bool, containerPath: String, appSpecificScheme: String, openUrl: @escaping (String) -> Void, openUniversalUrl: @escaping (String, TelegramApplicationOpenUrlCompletion) -> Void, canOpenUrl: @escaping (String) -> Bool, getTopWindow: @escaping () -> UIWindow?, displayNotification: @escaping (String) -> Void, applicationInForeground: Signal<Bool, NoError>, applicationIsActive: Signal<Bool, NoError>, clearMessageNotifications: @escaping ([MessageId]) -> Void, pushIdleTimerExtension: @escaping () -> Disposable, openSettings: @escaping () -> Void, openAppStorePage: @escaping () -> Void, registerForNotifications: @escaping (@escaping (Bool) -> Void) -> Void, requestSiriAuthorization: @escaping (@escaping (Bool) -> Void) -> Void, siriAuthorization: @escaping () -> AccessType, getWindowHost: @escaping () -> WindowHost?, presentNativeController: @escaping (UIViewController) -> Void, dismissNativeController: @escaping () -> Void, getAlternateIconName: @escaping () -> String?, requestSetAlternateIconName: @escaping (String?, @escaping (Bool) -> Void) -> Void) {
         self.isMainApp = isMainApp
         self.containerPath = containerPath
         self.appSpecificScheme = appSpecificScheme
@@ -56,6 +58,8 @@ public final class TelegramApplicationBindings {
         self.presentNativeController = presentNativeController
         self.dismissNativeController = dismissNativeController
         self.getWindowHost = getWindowHost
+        self.getAlternateIconName = getAlternateIconName
+        self.requestSetAlternateIconName = requestSetAlternateIconName
     }
 }
 
@@ -84,6 +88,7 @@ public final class AccountContext {
     public var watchManager: WatchManager?
     
     private var storedPassword: (String, CFAbsoluteTime, SwiftSignalKit.Timer)?
+    private var limitsConfigurationDisposable: Disposable?
     
     public init(sharedContext: SharedAccountContext, account: Account, limitsConfiguration: LimitsConfiguration) {
         self.sharedContext = sharedContext
@@ -105,10 +110,23 @@ public final class AccountContext {
             self.wallpaperUploadManager = nil
         }
         
+        let updatedLimitsConfiguration = account.postbox.preferencesView(keys: [PreferencesKeys.limitsConfiguration])
+        |> map { preferences -> LimitsConfiguration in
+            return preferences.values[PreferencesKeys.limitsConfiguration] as? LimitsConfiguration ?? LimitsConfiguration.defaultValue
+        }
+        
         self.currentLimitsConfiguration = Atomic(value: limitsConfiguration)
+        self._limitsConfiguration.set(.single(limitsConfiguration) |> then(updatedLimitsConfiguration))
+        
+        let currentLimitsConfiguration = self.currentLimitsConfiguration
+        self.limitsConfigurationDisposable = (self._limitsConfiguration.get()
+        |> deliverOnMainQueue).start(next: { value in
+            let _ = currentLimitsConfiguration.swap(value)
+        })
     }
     
     deinit {
+        self.limitsConfigurationDisposable?.dispose()
     }
     
     public func storeSecureIdPassword(password: String) {

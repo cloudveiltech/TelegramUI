@@ -186,6 +186,7 @@ class ItemListControllerNode<Entry: ItemListNodeEntry>: ASDisplayNode, UIScrollV
     var contentScrollingEnded: ((ListView) -> Bool)?
     var searchActivated: ((Bool) -> Void)?
     var reorderEntry: ((Int, Int, [Entry]) -> Void)?
+    var requestLayout: ((ContainedViewLayoutTransition) -> Void)?
     
     var enableInteractiveDismiss = false {
         didSet {
@@ -328,7 +329,7 @@ class ItemListControllerNode<Entry: ItemListNodeEntry>: ASDisplayNode, UIScrollV
             case let .animated(animationDuration, animationCurve):
                 duration = animationDuration
                 switch animationCurve {
-                    case .easeInOut:
+                    case .easeInOut, .custom:
                         break
                     case .spring:
                         curve = 7
@@ -544,10 +545,10 @@ class ItemListControllerNode<Entry: ItemListNodeEntry>: ASDisplayNode, UIScrollV
                                         if itemTag.isEqual(to: ensureVisibleItemTag) {
                                             if let itemNode = itemNode as? ListViewItemNode {
                                                 strongSelf.listNode.ensureItemNodeVisible(itemNode)
-                                                itemNode.setHighlighted(true, at: CGPoint(), animated: false)
+                                                /*itemNode.setHighlighted(true, at: CGPoint(), animated: false)
                                                 Queue.mainQueue().after(1.0, {
                                                     itemNode.setHighlighted(false, at: CGPoint(), animated: true)
-                                                })
+                                                })*/
                                                 applied = true
                                             }
                                         }
@@ -590,6 +591,10 @@ class ItemListControllerNode<Entry: ItemListNodeEntry>: ASDisplayNode, UIScrollV
                 }
             }
             self.listNode.isUserInteractionEnabled = transition.userInteractionEnabled
+            
+            if updateSearchItem {
+                self.requestLayout?(.animated(duration: 0.3, curve: .spring))
+            }
         }
     }
     

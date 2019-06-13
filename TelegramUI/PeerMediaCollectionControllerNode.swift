@@ -313,7 +313,7 @@ class PeerMediaCollectionControllerNode: ASDisplayNode {
             case let .animated(animationDuration, animationCurve):
                 duration = animationDuration
                 switch animationCurve {
-                    case .easeInOut:
+                    case .easeInOut, .custom:
                         break
                     case .spring:
                         curve = 7
@@ -550,5 +550,11 @@ class PeerMediaCollectionControllerNode: ASDisplayNode {
         }
         
         return nil
+    }
+    
+    func clearHighlightAnimated(_ animated: Bool) {
+        if let listView = self.historyNode as? ListView {
+            listView.clearHighlightAnimated(animated)
+        }
     }
 }

@@ -115,7 +115,7 @@ final class ForwardAccessoryPanelNode: AccessoryPanelNode {
                 var uniquePeerIds = Set<PeerId>()
                 var text = ""
                 for message in messages {
-                    if let author = message.author, !uniquePeerIds.contains(author.id) {
+                    if let author = message.effectiveAuthor, !uniquePeerIds.contains(author.id) {
                         uniquePeerIds.insert(author.id)
                         if !authors.isEmpty {
                             authors.append(", ")
@@ -148,6 +148,12 @@ final class ForwardAccessoryPanelNode: AccessoryPanelNode {
     
     deinit {
         self.messageDisposable.dispose()
+    }
+    
+    override func didLoad() {
+        super.didLoad()
+        
+        self.view.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(self.tapGesture(_:))))
     }
     
     override func updateThemeAndStrings(theme: PresentationTheme, strings: PresentationStrings) {
@@ -201,6 +207,12 @@ final class ForwardAccessoryPanelNode: AccessoryPanelNode {
     @objc func closePressed() {
         if let dismiss = self.dismiss {
             dismiss()
+        }
+    }
+    
+    @objc func tapGesture(_ recognizer: UITapGestureRecognizer) {
+        if case .ended = recognizer.state {
+            self.interfaceInteraction?.forwardCurrentForwardMessages()
         }
     }
 }

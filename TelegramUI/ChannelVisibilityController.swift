@@ -315,7 +315,7 @@ private enum ChannelVisibilityEntry: ItemListNodeEntry {
                 if let addressName = peer.addressName {
                     label = "t.me/" + addressName
                 }
-                return ItemListPeerItem(theme: theme, strings: strings, dateTimeFormat: dateTimeFormat, nameDisplayOrder: nameDisplayOrder, account: arguments.account, peer: peer, presence: nil, text: .text(label), label: .none, editing: editing, switchValue: nil, enabled: enabled, sectionId: self.section, action: nil, setPeerIdWithRevealedOptions: { previousId, id in
+                return ItemListPeerItem(theme: theme, strings: strings, dateTimeFormat: dateTimeFormat, nameDisplayOrder: nameDisplayOrder, account: arguments.account, peer: peer, presence: nil, text: .text(label), label: .none, editing: editing, switchValue: nil, enabled: enabled, selectable: true, sectionId: self.section, action: nil, setPeerIdWithRevealedOptions: { previousId, id in
                     arguments.setPeerIdWithRevealedOptions(previousId, id)
                 }, removePeer: { peerId in
                     arguments.revokePeerId(peerId)
@@ -871,7 +871,7 @@ public func channelVisibilityController(context: AccountContext, peerId: PeerId,
             if let link = link {
                 UIPasteboard.general.string = link
                 let presentationData = context.sharedContext.currentPresentationData.with { $0 }
-                presentControllerImpl?(OverlayStatusController(theme: presentationData.theme, strings: presentationData.strings, type: .genericSuccess(presentationData.strings.Username_LinkCopied)), nil)
+                presentControllerImpl?(OverlayStatusController(theme: presentationData.theme, strings: presentationData.strings, type: .genericSuccess(presentationData.strings.Username_LinkCopied, false)), nil)
             }
         })
     }, revokePrivateLink: {
@@ -1187,7 +1187,13 @@ public func channelVisibilityController(context: AccountContext, peerId: PeerId,
                         } else {
                             selectionController.displayProgress = true
                             let _ = (addChannelMembers(account: context.account, peerId: peerId, memberIds: filteredPeerIds)
-                            |> deliverOnMainQueue).start(completed: { [weak selectionController] in
+                            |> deliverOnMainQueue).start(error: { [weak selectionController] _ in
+                                guard let selectionController = selectionController, let navigationController = selectionController.navigationController as? NavigationController else {
+                                    return
+                                }
+                                
+                                navigateToChatController(navigationController: navigationController, chatController: nil, context: context, chatLocation: .peer(peerId), keepStack: .never, animated: true)
+                            }, completed: { [weak selectionController] in
                                 guard let selectionController = selectionController, let navigationController = selectionController.navigationController as? NavigationController else {
                                     return
                                 }

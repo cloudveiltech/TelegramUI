@@ -2,7 +2,6 @@ module TelegramUIPrivateModule {
     header "../../third-party/opusenc/opusenc.h"
     header "../TGDataItem.h"
     header "../FastBlur.h"
-    header "../UIImage+WebP.h"
     header "../RingBuffer.h"
     header "../TelegramUIIncludes.h"
     header "../../third-party/RMIntro/platform/ios/RMIntroViewController.h"
@@ -23,6 +22,7 @@ module TelegramUIPrivateModule {
     header "../EDSunriseSet.h"
     header "../TGBridgeAudioDecoder.h"
     header "../TGBridgeAudioEncoder.h"
+    header "../GZip.h"
     private header "../../third-party/libjpeg-turbo/turbojpeg.h"
     private header "../../third-party/libjpeg-turbo/jpeglib.h"
 }

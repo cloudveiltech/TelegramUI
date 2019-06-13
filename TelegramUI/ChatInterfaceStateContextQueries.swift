@@ -82,7 +82,7 @@ private func updatedContextQueryResultStateForQuery(context: AccountContext, pee
                     case .installed:
                         scope = [.installed]
                 }
-                return searchStickers(account: context.account, query: query.firstEmoji, scope: scope)
+                return searchStickers(account: context.account, query: query, scope: scope)
             }
             |> map { stickers -> (ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult? in
                 return { _ in
@@ -216,63 +216,62 @@ private func updatedContextQueryResultStateForQuery(context: AccountContext, pee
             
             let chatPeer = peer
             let contextBot = resolvePeerByName(account: context.account, name: addressName)
-                |> mapToSignal { peerId -> Signal<Peer?, NoError> in
-                    if let peerId = peerId {
-                        return context.account.postbox.loadedPeerWithId(peerId)
-                        |> map { peer -> Peer? in
-                            return peer
-                        }
-                        |> take(1)
-                    } else {
-                        return .single(nil)
+            |> mapToSignal { peerId -> Signal<Peer?, NoError> in
+                if let peerId = peerId {
+                    return context.account.postbox.loadedPeerWithId(peerId)
+                    |> map { peer -> Peer? in
+                        return peer
                     }
+                    |> take(1)
+                } else {
+                    return .single(nil)
                 }
-                |> mapToSignal { peer -> Signal<(ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult?, NoError> in
-                    if let user = peer as? TelegramUser, let botInfo = user.botInfo, let _ = botInfo.inlinePlaceholder {
-                        let contextResults = requestChatContextResults(account: context.account, botId: user.id, peerId: chatPeer.id, query: query, offset: "")
-                            |> map { results -> (ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult? in
-                                return { _ in
-                                    return .contextRequestResult(user, results)
+            }
+            |> mapToSignal { peer -> Signal<(ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult?, NoError> in
+                if let user = peer as? TelegramUser, let botInfo = user.botInfo, let _ = botInfo.inlinePlaceholder {
+                    let contextResults = requestChatContextResults(account: context.account, botId: user.id, peerId: chatPeer.id, query: query, offset: "")
+                    |> map { results -> (ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult? in
+                        return { _ in
+                            return .contextRequestResult(user, results)
+                        }
+                    }
+                    
+                    let botResult: Signal<(ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult?, NoError> = .single({ previousResult in
+                        var passthroughPreviousResult: ChatContextResultCollection?
+                        if let previousResult = previousResult {
+                            if case let .contextRequestResult(previousUser, previousResults) = previousResult {
+                                if previousUser?.id == user.id {
+                                    passthroughPreviousResult = previousResults
                                 }
                             }
-                        
-                        let botResult: Signal<(ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult?, NoError> = .single({ previousResult in
-                            var passthroughPreviousResult: ChatContextResultCollection?
-                            if let previousResult = previousResult {
-                                if case let .contextRequestResult(previousUser, previousResults) = previousResult {
-                                    if previousUser?.id == user.id {
-                                        passthroughPreviousResult = previousResults
-                                    }
-                                }
-                            }
-                            return .contextRequestResult(user, passthroughPreviousResult)
-                        })
-                        
-                        let maybeDelayedContextResults: Signal<(ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult?, NoError>
-                        if delayRequest {
-                            maybeDelayedContextResults = contextResults |> delay(0.4, queue: Queue.concurrentDefaultQueue())
-                        } else {
-                            maybeDelayedContextResults = contextResults
                         }
-                        
-                        return botResult |> then(maybeDelayedContextResults)
+                        return .contextRequestResult(user, passthroughPreviousResult)
+                    })
+                    
+                    let maybeDelayedContextResults: Signal<(ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult?, NoError>
+                    if delayRequest {
+                        maybeDelayedContextResults = contextResults |> delay(0.4, queue: Queue.concurrentDefaultQueue())
                     } else {
-                        return .single({ _ in return nil })
+                        maybeDelayedContextResults = contextResults
                     }
+                    
+                    return botResult |> then(maybeDelayedContextResults)
+                } else {
+                    return .single({ _ in return nil })
                 }
+            }
             
             return signal |> then(contextBot)
-        case let .emojiSearch(query):            
-            let foundEmojis: Signal<[(String, String)], NoError> = Signal { subscriber in
+        case let .emojiSearch(query, languageCode):
+            let foundEmojis = searchEmojiKeywords(postbox: context.account.postbox, inputLanguageCode: languageCode, query: query, completeMatch: query.count < 3)
+            |> map { keywords -> [(String, String)] in
                 var result: [(String, String)] = []
-                for entry in TGEmojiSuggestions.suggestions(forQuery: query.lowercased()) {
-                    if let entry = entry as? TGAlphacodeEntry {
-                        result.append((entry.emoji, entry.code))
+                for keyword in keywords {
+                    for emoticon in keyword.emoticons {
+                        result.append((emoticon, keyword.keyword))
                     }
                 }
-                subscriber.putNext(result)
-                subscriber.putCompletion()
-                return EmptyDisposable
+                return result
             }
             
             let emojis: Signal<(ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult?, NoError> = foundEmojis |> map { result -> (ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult? in
@@ -337,7 +336,7 @@ func searchQuerySuggestionResultStateForChatInterfacePresentationState(_ chatPre
 
 private let dataDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType([.link]).rawValue)
 
-func urlPreviewStateForInputText(_ inputText: String?, context: AccountContext, currentQuery: String?) -> (String?, Signal<(TelegramMediaWebpage?) -> TelegramMediaWebpage?, NoError>)? {
+func urlPreviewStateForInputText(_ inputText: NSAttributedString?, context: AccountContext, currentQuery: String?) -> (String?, Signal<(TelegramMediaWebpage?) -> TelegramMediaWebpage?, NoError>)? {
     guard let text = inputText else {
         if currentQuery != nil {
             return (nil, .single({ _ in return nil }))
@@ -346,14 +345,23 @@ func urlPreviewStateForInputText(_ inputText: String?, context: AccountContext, 
         }
     }
     if let dataDetector = dataDetector {
-        let utf16 = text.utf16
+        let utf16 = text.string.utf16
         
         var detectedUrl: String?
         
-        let matches = dataDetector.matches(in: text, options: [], range: NSRange(location: 0, length: utf16.count))
+        let nsRange = NSRange(location: 0, length: utf16.count)
+        let matches = dataDetector.matches(in: text.string, options: [], range: nsRange)
         if let match = matches.first {
-            let urlText = (text as NSString).substring(with: match.range)
+            let urlText = (text.string as NSString).substring(with: match.range)
             detectedUrl = urlText
+        }
+        
+        if detectedUrl == nil {
+            inputText?.enumerateAttribute(ChatTextInputAttributes.textUrl, in: nsRange, options: [], using: { value, range, stop in
+                if let value = value as? ChatTextInputTextUrlAttribute {
+                    detectedUrl = value.url
+                }
+            })
         }
         
         if detectedUrl != currentQuery {

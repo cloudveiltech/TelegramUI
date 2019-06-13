@@ -94,7 +94,7 @@ final class HashtagChatInputContextPanelNode: ChatInputContextPanelNode {
             entries.append(entry)
             index += 1
         }
-        self.prepareTransition(from: self.currentEntries ?? [], to: entries)
+        self.prepareTransition(from: self.currentEntries, to: entries)
     }
     
     private func prepareTransition(from: [HashtagChatInputContextPanelEntry]? , to: [HashtagChatInputContextPanelEntry]) {
@@ -202,7 +202,7 @@ final class HashtagChatInputContextPanelNode: ChatInputContextPanelNode {
         case let .animated(animationDuration, animationCurve):
             duration = animationDuration
             switch animationCurve {
-                case .easeInOut:
+                case .easeInOut, .custom:
                     break
                 case .spring:
                     curve = 7

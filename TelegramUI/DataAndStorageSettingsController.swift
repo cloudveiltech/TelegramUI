@@ -285,6 +285,7 @@ private enum DataAndStorageEntry: ItemListNodeEntry {
             case let .autoplayGifs(theme, text, value):
                 //CloudVeil start
                 let v = value && !MainController.SecurityStaticSettings.disableAutoPlayGifs
+                
                 return ItemListSwitchItem(theme: theme, title: text, value: v, enabled: !MainController.SecurityStaticSettings.disableAutoPlayGifs, sectionId: self.section, style: .blocks, updated: { value in
                     arguments.toggleAutoplayGifs(value)
                 }, tag: DataAndStorageEntryTag.autoplayGifs)
@@ -545,6 +546,7 @@ func dataAndStorageController(context: AccountContext, focusOnItemTag: DataAndSt
     }, toggleAutoplayGifs: { value in
         let _ = updateMediaDownloadSettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
             var settings = settings
+            
             //CloudVeil start
             settings.autoplayGifs = value && !MainController.SecurityStaticSettings.disableAutoPlayGifs
             //CloudVeil end
@@ -577,7 +579,6 @@ func dataAndStorageController(context: AccountContext, focusOnItemTag: DataAndSt
     }
     
     let controller = ItemListController(context: context, state: signal)
-    
     pushControllerImpl = { [weak controller] c in
         if let controller = controller {
             (controller.navigationController as? NavigationController)?.pushViewController(c)
@@ -586,6 +587,6 @@ func dataAndStorageController(context: AccountContext, focusOnItemTag: DataAndSt
     presentControllerImpl = { [weak controller] c, a in
         controller?.present(c, in: .window(.root), with: a)
     }
-    
+
     return controller
 }

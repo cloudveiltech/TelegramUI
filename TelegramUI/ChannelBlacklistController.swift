@@ -157,7 +157,7 @@ private enum ChannelBlacklistEntry: ItemListNodeEntry {
                     default:
                         break
                 }
-                return ItemListPeerItem(theme: theme, strings: strings, dateTimeFormat: dateTimeFormat, nameDisplayOrder: nameDisplayOrder, account: arguments.account, peer: participant.peer, presence: nil, text: text, label: .none, editing: editing, switchValue: nil, enabled: enabled, sectionId: self.section, action: {
+                return ItemListPeerItem(theme: theme, strings: strings, dateTimeFormat: dateTimeFormat, nameDisplayOrder: nameDisplayOrder, account: arguments.account, peer: participant.peer, presence: nil, text: text, label: .none, editing: editing, switchValue: nil, enabled: enabled, selectable: true, sectionId: self.section, action: {
                     arguments.openPeer(participant)
                 }, setPeerIdWithRevealedOptions: { previousId, id in
                     arguments.setPeerIdWithRevealedOptions(previousId, id)
@@ -368,6 +368,12 @@ public func channelBlacklistController(context: AccountContext, peerId: PeerId) 
                     |> ignoreValues
                     |> then(
                         context.peerChannelMemberCategoriesContextsManager.addMember(account: context.account, peerId: peerId, memberId: memberId)
+                        |> map { _ -> Void in
+                            return Void()
+                        }
+                        |> `catch` { _ -> Signal<Void, NoError> in
+                            return .complete()
+                        }
                         |> ignoreValues
                     )
                     removePeerDisposable.set((signal |> deliverOnMainQueue).start(error: { _ in
@@ -464,7 +470,7 @@ public func channelBlacklistController(context: AccountContext, peerId: PeerId) 
         
         var searchItem: ItemListControllerSearch?
         if state.searchingMembers {
-            searchItem = ChannelMembersSearchItem(context: context, peerId: peerId, searchMode: .searchKicked, cancel: {
+            searchItem = ChannelMembersSearchItem(context: context, peerId: peerId, searchContext: nil, searchMode: .searchKicked, cancel: {
                 updateState { state in
                     return state.withUpdatedSearchingMembers(false)
                 }

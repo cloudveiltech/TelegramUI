@@ -4,12 +4,14 @@ import Postbox
 import TelegramCore
 import Contacts
 import AddressBook
+import TelegramUIPrivateModule
 
 public struct PresentationDateTimeFormat: Equatable {
     let timeFormat: PresentationTimeFormat
     let dateFormat: PresentationDateFormat
     let dateSeparator: String
     let decimalSeparator: String
+    let groupingSeparator: String
 }
 
 public struct PresentationVolumeControlStatusBarIcons: Equatable {
@@ -53,8 +55,9 @@ public final class PresentationData: Equatable {
     public let nameDisplayOrder: PresentationPersonNameOrder
     public let nameSortOrder: PresentationPersonNameOrder
     public let disableAnimations: Bool
+    public let largeEmoji: Bool
     
-    public init(strings: PresentationStrings, theme: PresentationTheme, chatWallpaper: TelegramWallpaper, volumeControlStatusBarIcons: PresentationVolumeControlStatusBarIcons, fontSize: PresentationFontSize, dateTimeFormat: PresentationDateTimeFormat, nameDisplayOrder: PresentationPersonNameOrder, nameSortOrder: PresentationPersonNameOrder, disableAnimations: Bool) {
+    public init(strings: PresentationStrings, theme: PresentationTheme, chatWallpaper: TelegramWallpaper, volumeControlStatusBarIcons: PresentationVolumeControlStatusBarIcons, fontSize: PresentationFontSize, dateTimeFormat: PresentationDateTimeFormat, nameDisplayOrder: PresentationPersonNameOrder, nameSortOrder: PresentationPersonNameOrder, disableAnimations: Bool, largeEmoji: Bool) {
         self.strings = strings
         self.theme = theme
         self.chatWallpaper = chatWallpaper
@@ -64,10 +67,11 @@ public final class PresentationData: Equatable {
         self.nameDisplayOrder = nameDisplayOrder
         self.nameSortOrder = nameSortOrder
         self.disableAnimations = disableAnimations
+        self.largeEmoji = largeEmoji
     }
     
     public static func ==(lhs: PresentationData, rhs: PresentationData) -> Bool {
-        return lhs.strings === rhs.strings && lhs.theme === rhs.theme && lhs.chatWallpaper == rhs.chatWallpaper && lhs.volumeControlStatusBarIcons == rhs.volumeControlStatusBarIcons && lhs.fontSize == rhs.fontSize && lhs.dateTimeFormat == rhs.dateTimeFormat && lhs.disableAnimations == rhs.disableAnimations
+        return lhs.strings === rhs.strings && lhs.theme === rhs.theme && lhs.chatWallpaper == rhs.chatWallpaper && lhs.volumeControlStatusBarIcons == rhs.volumeControlStatusBarIcons && lhs.fontSize == rhs.fontSize && lhs.dateTimeFormat == rhs.dateTimeFormat && lhs.disableAnimations == rhs.disableAnimations && lhs.largeEmoji == rhs.largeEmoji
     }
 }
 
@@ -103,7 +107,7 @@ private func volumeControlStatusBarIcons() -> PresentationVolumeControlStatusBar
     return PresentationVolumeControlStatusBarIcons(offIcon: UIImage(bundleImageName: "Components/Volume/VolumeOff")!, halfIcon: UIImage(bundleImageName: "Components/Volume/VolumeHalf")!, fullIcon: UIImage(bundleImageName: "Components/Volume/VolumeFull")!)
 }
 
-private func currentDateTimeFormat(strings: PresentationStrings) -> PresentationDateTimeFormat {
+private func currentDateTimeFormat() -> PresentationDateTimeFormat {
     let locale = Locale.current
     let dateFormatter = DateFormatter()
     dateFormatter.locale = locale
@@ -138,7 +142,8 @@ private func currentDateTimeFormat(strings: PresentationStrings) -> Presentation
     //Cloudveil end    
     
     let decimalSeparator = locale.decimalSeparator ?? "."
-    return PresentationDateTimeFormat(timeFormat: timeFormat, dateFormat: dateFormat, dateSeparator: dateSeparator, decimalSeparator: decimalSeparator)
+    let groupingSeparator = locale.groupingSeparator ?? ""
+    return PresentationDateTimeFormat(timeFormat: timeFormat, dateFormat: dateFormat, dateSeparator: dateSeparator, decimalSeparator: decimalSeparator, groupingSeparator: groupingSeparator)
 }
 
 private func currentPersonNameSortOrder() -> PresentationPersonNameOrder {
@@ -229,7 +234,8 @@ public func currentPresentationDataAndSettings(accountManager: AccountManager) -
         let effectiveTheme: PresentationThemeReference
         var effectiveChatWallpaper: TelegramWallpaper = themeSettings.chatWallpaper
         
-        if automaticThemeShouldSwitchNow(themeSettings.automaticThemeSwitchSetting, currentTheme: themeSettings.theme) {
+        let parameters = AutomaticThemeSwitchParameters(settings: themeSettings.automaticThemeSwitchSetting)
+        if automaticThemeShouldSwitchNow(parameters, currentTheme: themeSettings.theme) {
             effectiveTheme = .builtin(themeSettings.automaticThemeSwitchSetting.theme)
             switch effectiveChatWallpaper {
                 case .builtin, .color:
@@ -261,16 +267,16 @@ public func currentPresentationDataAndSettings(accountManager: AccountManager) -
                         themeValue = makeDefaultDayPresentationTheme(accentColor: themeSettings.themeAccentColor ?? defaultDayAccentColor, serviceBackgroundColor: defaultServiceBackgroundColor)
                 }
         }
+        let dateTimeFormat = currentDateTimeFormat()
         let stringsValue: PresentationStrings
         if let localizationSettings = localizationSettings {
-            stringsValue = PresentationStrings(primaryComponent: PresentationStringsComponent(languageCode: localizationSettings.primaryComponent.languageCode, localizedName: localizationSettings.primaryComponent.localizedName, pluralizationRulesCode: localizationSettings.primaryComponent.customPluralizationCode, dict: dictFromLocalization(localizationSettings.primaryComponent.localization)), secondaryComponent: localizationSettings.secondaryComponent.flatMap({ PresentationStringsComponent(languageCode: $0.languageCode, localizedName: $0.localizedName, pluralizationRulesCode: $0.customPluralizationCode, dict: dictFromLocalization($0.localization)) }))
+            stringsValue = PresentationStrings(primaryComponent: PresentationStringsComponent(languageCode: localizationSettings.primaryComponent.languageCode, localizedName: localizationSettings.primaryComponent.localizedName, pluralizationRulesCode: localizationSettings.primaryComponent.customPluralizationCode, dict: dictFromLocalization(localizationSettings.primaryComponent.localization)), secondaryComponent: localizationSettings.secondaryComponent.flatMap({ PresentationStringsComponent(languageCode: $0.languageCode, localizedName: $0.localizedName, pluralizationRulesCode: $0.customPluralizationCode, dict: dictFromLocalization($0.localization)) }), groupingSeparator: dateTimeFormat.groupingSeparator)
         } else {
             stringsValue = defaultPresentationStrings
         }
-        let dateTimeFormat = currentDateTimeFormat(strings: stringsValue)
         let nameDisplayOrder = contactSettings.nameDisplayOrder
         let nameSortOrder = currentPersonNameSortOrder()
-        return InitialPresentationDataAndSettings(presentationData: PresentationData(strings: stringsValue, theme: themeValue, chatWallpaper: effectiveChatWallpaper, volumeControlStatusBarIcons: volumeControlStatusBarIcons(), fontSize: themeSettings.fontSize, dateTimeFormat: dateTimeFormat, nameDisplayOrder: nameDisplayOrder, nameSortOrder: nameSortOrder, disableAnimations: themeSettings.disableAnimations), automaticMediaDownloadSettings: automaticMediaDownloadSettings, callListSettings: callListSettings, inAppNotificationSettings: inAppNotificationSettings, mediaInputSettings: mediaInputSettings, experimentalUISettings: experimentalUISettings)
+        return InitialPresentationDataAndSettings(presentationData: PresentationData(strings: stringsValue, theme: themeValue, chatWallpaper: effectiveChatWallpaper, volumeControlStatusBarIcons: volumeControlStatusBarIcons(), fontSize: themeSettings.fontSize, dateTimeFormat: dateTimeFormat, nameDisplayOrder: nameDisplayOrder, nameSortOrder: nameSortOrder, disableAnimations: themeSettings.disableAnimations, largeEmoji: themeSettings.largeEmoji), automaticMediaDownloadSettings: automaticMediaDownloadSettings, callListSettings: callListSettings, inAppNotificationSettings: inAppNotificationSettings, mediaInputSettings: mediaInputSettings, experimentalUISettings: experimentalUISettings)
     }
 }
 
@@ -283,7 +289,43 @@ private func roundTimeToDay(_ timestamp: Int32) -> Int32 {
     return Int32(components.hour! * 60 * 60 + components.minute! * 60 + components.second!)
 }
 
-func automaticThemeShouldSwitchNow(_ settings: AutomaticThemeSwitchSetting, currentTheme: PresentationThemeReference) -> Bool {
+private enum PreparedAutomaticThemeSwitchTrigger {
+    case none
+    case time(fromSeconds: Int32, toSeconds: Int32)
+    case brightness(threshold: Double)
+}
+
+private struct AutomaticThemeSwitchParameters {
+    let trigger: PreparedAutomaticThemeSwitchTrigger
+    let theme: PresentationBuiltinThemeReference
+    
+    init(settings: AutomaticThemeSwitchSetting) {
+        let trigger: PreparedAutomaticThemeSwitchTrigger
+        switch settings.trigger {
+            case .none:
+                trigger = .none
+            case let .timeBased(setting):
+                let fromValue: Int32
+                let toValue: Int32
+                switch setting {
+                    case let .automatic(latitude, longitude, _):
+                        let calculator = EDSunriseSet(date: Date(), timezone: TimeZone.current, latitude: latitude, longitude: longitude)!
+                        fromValue = roundTimeToDay(Int32(calculator.sunset.timeIntervalSince1970))
+                        toValue = roundTimeToDay(Int32(calculator.sunrise.timeIntervalSince1970))
+                    case let .manual(fromSeconds, toSeconds):
+                        fromValue = fromSeconds
+                        toValue = toSeconds
+                }
+                trigger = .time(fromSeconds: fromValue, toSeconds: toValue)
+            case let .brightness(threshold):
+                trigger = .brightness(threshold: threshold)
+        }
+        self.trigger = trigger
+        self.theme = settings.theme
+    }
+}
+
+private func automaticThemeShouldSwitchNow(_ parameters: AutomaticThemeSwitchParameters, currentTheme: PresentationThemeReference) -> Bool {
     switch currentTheme {
         case let .builtin(builtin):
             switch builtin {
@@ -293,20 +335,10 @@ func automaticThemeShouldSwitchNow(_ settings: AutomaticThemeSwitchSetting, curr
                     break
             }
     }
-    switch settings.trigger {
+    switch parameters.trigger {
         case .none:
             return false
-        case let .timeBased(setting):
-            let fromValue: Int32
-            let toValue: Int32
-            switch setting {
-                case let .automatic(automatic):
-                    fromValue = automatic.sunset
-                    toValue = automatic.sunrise
-                case let .manual(fromSeconds, toSeconds):
-                    fromValue = fromSeconds
-                    toValue = toSeconds
-            }
+        case let .time(fromValue, toValue):
             let roundedTimestamp = roundTimeToDay(Int32(Date().timeIntervalSince1970))
             if roundedTimestamp >= fromValue || roundedTimestamp <= toValue {
                 return true
@@ -318,15 +350,21 @@ func automaticThemeShouldSwitchNow(_ settings: AutomaticThemeSwitchSetting, curr
     }
 }
 
+func automaticThemeShouldSwitchNow(settings: AutomaticThemeSwitchSetting, currentTheme: PresentationThemeReference) -> Bool {
+    let parameters = AutomaticThemeSwitchParameters(settings: settings)
+    return automaticThemeShouldSwitchNow(parameters, currentTheme: currentTheme)
+}
+
 private func automaticThemeShouldSwitch(_ settings: AutomaticThemeSwitchSetting, currentTheme: PresentationThemeReference) -> Signal<Bool, NoError> {
     if case .none = settings.trigger {
         return .single(false)
     } else {
         return Signal { subscriber in
-            subscriber.putNext(automaticThemeShouldSwitchNow(settings, currentTheme: currentTheme))
+            let parameters = AutomaticThemeSwitchParameters(settings: settings)
+            subscriber.putNext(automaticThemeShouldSwitchNow(parameters, currentTheme: currentTheme))
             
             let timer = SwiftSignalKit.Timer(timeout: 1.0, repeat: true, completion: {
-                subscriber.putNext(automaticThemeShouldSwitchNow(settings, currentTheme: currentTheme))
+                subscriber.putNext(automaticThemeShouldSwitchNow(parameters, currentTheme: currentTheme))
             }, queue: Queue.mainQueue())
             timer.start()
             
@@ -416,18 +454,17 @@ public func updatedPresentationData(accountManager: AccountManager, applicationB
                             localizationSettings = nil
                         }
                         
+                        let dateTimeFormat = currentDateTimeFormat()
                         let stringsValue: PresentationStrings
                         if let localizationSettings = localizationSettings {
-                            stringsValue = PresentationStrings(primaryComponent: PresentationStringsComponent(languageCode: localizationSettings.primaryComponent.languageCode, localizedName: localizationSettings.primaryComponent.localizedName, pluralizationRulesCode: localizationSettings.primaryComponent.customPluralizationCode, dict: dictFromLocalization(localizationSettings.primaryComponent.localization)), secondaryComponent: localizationSettings.secondaryComponent.flatMap({ PresentationStringsComponent(languageCode: $0.languageCode, localizedName: $0.localizedName, pluralizationRulesCode: $0.customPluralizationCode, dict: dictFromLocalization($0.localization)) }))
+                            stringsValue = PresentationStrings(primaryComponent: PresentationStringsComponent(languageCode: localizationSettings.primaryComponent.languageCode, localizedName: localizationSettings.primaryComponent.localizedName, pluralizationRulesCode: localizationSettings.primaryComponent.customPluralizationCode, dict: dictFromLocalization(localizationSettings.primaryComponent.localization)), secondaryComponent: localizationSettings.secondaryComponent.flatMap({ PresentationStringsComponent(languageCode: $0.languageCode, localizedName: $0.localizedName, pluralizationRulesCode: $0.customPluralizationCode, dict: dictFromLocalization($0.localization)) }), groupingSeparator: dateTimeFormat.groupingSeparator)
                         } else {
                             stringsValue = defaultPresentationStrings
                         }
-                        
-                        let dateTimeFormat = currentDateTimeFormat(strings: stringsValue)
                         let nameDisplayOrder = contactSettings.nameDisplayOrder
                         let nameSortOrder = currentPersonNameSortOrder()
                         
-                        return PresentationData(strings: stringsValue, theme: themeValue, chatWallpaper: effectiveChatWallpaper, volumeControlStatusBarIcons: volumeControlStatusBarIcons(), fontSize: themeSettings.fontSize, dateTimeFormat: dateTimeFormat, nameDisplayOrder: nameDisplayOrder, nameSortOrder: nameSortOrder, disableAnimations: themeSettings.disableAnimations)
+                        return PresentationData(strings: stringsValue, theme: themeValue, chatWallpaper: effectiveChatWallpaper, volumeControlStatusBarIcons: volumeControlStatusBarIcons(), fontSize: themeSettings.fontSize, dateTimeFormat: dateTimeFormat, nameDisplayOrder: nameDisplayOrder, nameSortOrder: nameSortOrder, disableAnimations: themeSettings.disableAnimations, largeEmoji: themeSettings.largeEmoji)
                     }
                 } else {
                     return .complete()
@@ -438,10 +475,10 @@ public func updatedPresentationData(accountManager: AccountManager, applicationB
 }
 
 public func defaultPresentationData() -> PresentationData {
-    let dateTimeFormat = currentDateTimeFormat(strings: defaultPresentationStrings)
+    let dateTimeFormat = currentDateTimeFormat()
     let nameDisplayOrder: PresentationPersonNameOrder = .firstLast
     let nameSortOrder = currentPersonNameSortOrder()
     
     let themeSettings = PresentationThemeSettings.defaultSettings
-    return PresentationData(strings: defaultPresentationStrings, theme: defaultPresentationTheme, chatWallpaper: .builtin(WallpaperSettings()), volumeControlStatusBarIcons: volumeControlStatusBarIcons(), fontSize: themeSettings.fontSize, dateTimeFormat: dateTimeFormat, nameDisplayOrder: nameDisplayOrder, nameSortOrder: nameSortOrder, disableAnimations: themeSettings.disableAnimations)
+    return PresentationData(strings: defaultPresentationStrings, theme: defaultPresentationTheme, chatWallpaper: .builtin(WallpaperSettings()), volumeControlStatusBarIcons: volumeControlStatusBarIcons(), fontSize: themeSettings.fontSize, dateTimeFormat: dateTimeFormat, nameDisplayOrder: nameDisplayOrder, nameSortOrder: nameSortOrder, disableAnimations: themeSettings.disableAnimations, largeEmoji: themeSettings.largeEmoji)
 }

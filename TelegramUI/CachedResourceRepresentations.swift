@@ -171,3 +171,59 @@ final class CachedAlbumArtworkRepresentation: CachedMediaResourceRepresentation 
         }
     }
 }
+
+final class CachedEmojiThumbnailRepresentation: CachedMediaResourceRepresentation {
+    let outline: Bool
+    
+    var uniqueId: String {
+        return "emoji-thumb-\(self.outline ? 1 : 0)"
+    }
+    
+    init(outline: Bool) {
+        self.outline = outline
+    }
+    
+    func isEqual(to: CachedMediaResourceRepresentation) -> Bool {
+        if let to = to as? CachedEmojiThumbnailRepresentation {
+            return self.outline == to.outline
+        } else {
+            return false
+        }
+    }
+}
+
+final class CachedEmojiRepresentation: CachedMediaResourceRepresentation {
+    let tile: UInt8
+    let outline: Bool
+    
+    var uniqueId: String {
+        return "emoji-\(Int(self.tile))-\(self.outline ? 1 : 0)"
+    }
+    
+    init(tile: UInt8, outline: Bool) {
+        self.tile = tile
+        self.outline = outline
+    }
+    
+    func isEqual(to: CachedMediaResourceRepresentation) -> Bool {
+        if let to = to as? CachedEmojiRepresentation {
+            return self.tile == to.tile && self.outline == to.outline
+        } else {
+            return false
+        }
+    }
+}
+
+final class CachedAnimatedStickerRepresentation: CachedMediaResourceRepresentation {
+    var uniqueId: String {
+        return "animated-sticker"
+    }
+    
+    func isEqual(to: CachedMediaResourceRepresentation) -> Bool {
+        if let _ = to as? CachedAnimatedStickerRepresentation {
+            return true
+        } else {
+            return false
+        }
+    }
+}

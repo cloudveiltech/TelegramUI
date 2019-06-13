@@ -10,25 +10,25 @@ public func mergeListsStableWithUpdates<T>(leftList: [T], rightList: [T], allUpd
     var insertItems: [(Int, T, Int?)] = []
     var updatedIndices: [(Int, T, Int)] = []
     
-    #if (arch(i386) || arch(x86_64)) && os(iOS)
-    var existingStableIds: [T.T: T] = [:]
-    for item in leftList {
-        if let _ = existingStableIds[item.stableId] {
-            assertionFailure()
-        } else {
-            existingStableIds[item.stableId] = item
+    if !GlobalExperimentalSettings.isAppStoreBuild {
+        var existingStableIds: [T.T: T] = [:]
+        for item in leftList {
+            if let _ = existingStableIds[item.stableId] {
+                assertionFailure()
+            } else {
+                existingStableIds[item.stableId] = item
+            }
+        }
+        existingStableIds.removeAll()
+        for item in rightList {
+            if let other = existingStableIds[item.stableId] {
+                print("\(other) has the same stableId as \(item): \(item.stableId)")
+                assertionFailure()
+            } else {
+                existingStableIds[item.stableId] = item
+            }
         }
     }
-    existingStableIds.removeAll()
-    for item in rightList {
-        if let other = existingStableIds[item.stableId] {
-            print("\(other) has the same stableId as \(item): \(item.stableId)")
-            assertionFailure()
-        } else {
-            existingStableIds[item.stableId] = item
-        }
-    }
-    #endif
     
     var currentList = leftList
     
@@ -156,23 +156,16 @@ public func mergeListsStableWithUpdates<T>(leftList: [T], rightList: [T], allUpd
             //print("i++")
             //print("j++")
             let previousIndex = previousIndices[right.stableId]
-           //CloudVeil patch crash
-            if currentList.count <= i {
-                currentList.append(right)
-                i = currentList.count - 1
-            } else {
-                currentList.insert(right, at: i)
-            }
-            //CloudVeil patch crash
             insertItems.append((i, right, previousIndex))
-           
+            currentList.insert(right, at: i)
+            
             if k < updatedIndices.count {
                 for l in k ..< updatedIndices.count {
                     updatedIndices[l] = (updatedIndices[l].0 + 1, updatedIndices[l].1, updatedIndices[l].2)
                 }
             }
             
-            i += 19
+            i += 1
             j += 1
         } else {
             break
@@ -183,7 +176,11 @@ public func mergeListsStableWithUpdates<T>(leftList: [T], rightList: [T], allUpd
         currentList[index] = item
     }
     
-    assert(currentList == rightList, "currentList == rightList")
+    if GlobalExperimentalSettings.isAppStoreBuild {
+        assert(currentList == rightList, "currentList == rightList")
+    } else {
+        precondition(currentList == rightList, "currentList == rightList")
+    }
     
     return (removeIndices, insertItems, updatedIndices)
 }
@@ -193,7 +190,7 @@ public func mergeListsStableWithUpdatesReversed<T>(leftList: [T], rightList: [T]
     var insertItems: [(Int, T, Int?)] = []
     var updatedIndices: [(Int, T, Int)] = []
     
-    #if (arch(i386) || arch(x86_64)) && os(iOS)
+    #if targetEnvironment(simulator)
         var existingStableIds: [T.T: T] = [:]
         for item in leftList {
             if let _ = existingStableIds[item.stableId] {

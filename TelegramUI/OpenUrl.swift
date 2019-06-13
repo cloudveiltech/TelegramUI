@@ -17,51 +17,14 @@ public struct ParsedSecureIdUrl {
 }
 
 public func parseProxyUrl(_ url: URL) -> ProxyServerSettings? {
-    guard let query = url.query, url.scheme == "tg" else {
+    guard let proxy = parseProxyUrl(url.absoluteString) else {
         return nil
     }
-    if url.host == "socks" || url.host == "proxy" {
-        if let components = URLComponents(string: "/?" + query) {
-            var server: String?
-            var port: String?
-            var user: String?
-            var pass: String?
-            var secret: String?
-            if let queryItems = components.queryItems {
-                for queryItem in queryItems {
-                    if let value = queryItem.value {
-                        if queryItem.name == "server" || queryItem.name == "proxy" {
-                            server = value
-                        } else if queryItem.name == "port" {
-                            port = value
-                        } else if queryItem.name == "user" {
-                            user = value
-                        } else if queryItem.name == "pass" {
-                            pass = value
-                        } else if queryItem.name == "secret" {
-                            secret = value
-                        }
-                    }
-                }
-            }
-            
-            if let server = server, !server.isEmpty, let port = port, let portValue = Int32(port), let _ = Int32(port) {
-                let connection: ProxyServerConnection
-                if let secret = secret {
-                    let data = dataWithHexString(secret)
-                    if data.count == 16 || (data.count == 17 && MTSocksProxySettings.secretSupportsExtendedPadding(data)) {
-                        connection = .mtp(secret: data)
-                    } else {
-                        return nil
-                    }
-                } else {
-                    connection = .socks5(username: user, password: pass)
-                }
-                return ProxyServerSettings(host: server, port: portValue, connection: connection)
-            }
-        }
+    if let secret = proxy.secret, secret.count == 16 || (secret.count == 17 && MTSocksProxySettings.secretSupportsExtendedPadding(secret)) {
+        return ProxyServerSettings(host: proxy.host, port: proxy.port, connection: .mtp(secret: secret))
+    } else {
+        return ProxyServerSettings(host: proxy.host, port: proxy.port, connection: .socks5(username: proxy.username, password: proxy.password))
     }
-    return nil
 }
 
 public func parseSecureIdUrl(_ url: URL) -> ParsedSecureIdUrl? {
@@ -227,22 +190,20 @@ public func openExternalUrl(context: AccountContext, urlContext: OpenURLContext 
                     switch navigation {
                         case .info:
                             let _ = (context.account.postbox.loadedPeerWithId(peerId)
-                                |> deliverOnMainQueue).start(next: { peer in
-                                    if let infoController = peerInfoController(context: context, peer: peer) {
-                                        if let navigationController = navigationController {
-                                            navigationController.view.window?.rootViewController?.dismiss(animated: true, completion: nil)
-                                        }
-                                        navigationController?.pushViewController(infoController)
-                                    }
-                                })
+                            |> deliverOnMainQueue).start(next: { peer in
+                                if let infoController = peerInfoController(context: context, peer: peer) {
+                                    context.sharedContext.applicationBindings.dismissNativeController()
+                                    navigationController?.pushViewController(infoController)
+                                }
+                            })
                         case let .chat(_, messageId):
+                            context.sharedContext.applicationBindings.dismissNativeController()
                             if let navigationController = navigationController {
-                                navigationController.view.window?.rootViewController?.dismiss(animated: true, completion: nil)
                                 navigateToChatController(navigationController: navigationController, context: context, chatLocation: .peer(peerId), messageId: messageId)
                             }
                         case let .withBotStartPayload(payload):
+                            context.sharedContext.applicationBindings.dismissNativeController()
                             if let navigationController = navigationController {
-                                navigationController.view.window?.rootViewController?.dismiss(animated: true, completion: nil)
                                 navigateToChatController(navigationController: navigationController, context: context, chatLocation: .peer(peerId), botStart: payload)
                             }
                         default:
@@ -627,6 +588,7 @@ public func openExternalUrl(context: AccountContext, urlContext: OpenURLContext 
                         return
                     }
                     //CloudVeil end
+                    
                     if let window = navigationController?.view.window {
                         let controller = SFSafariViewController(url: parsedUrl)
                         if #available(iOSApplicationExtension 10.0, *) {

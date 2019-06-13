@@ -33,6 +33,7 @@ private enum ChatTextInputStateTextAttributeType: PostboxCoding, Equatable {
     case italic
     case monospace
     case textMention(PeerId)
+    case textUrl(String)
     
     init(decoder: PostboxDecoder) {
         switch decoder.decodeInt32ForKey("t", orElse: 0) {
@@ -44,6 +45,8 @@ private enum ChatTextInputStateTextAttributeType: PostboxCoding, Equatable {
                 self = .monospace
             case 3:
                 self = .textMention(PeerId(decoder.decodeInt64ForKey("peerId", orElse: 0)))
+            case 4:
+                self = .textUrl(decoder.decodeStringForKey("url", orElse: ""))
             default:
                 assertionFailure()
                 self = .bold
@@ -61,6 +64,9 @@ private enum ChatTextInputStateTextAttributeType: PostboxCoding, Equatable {
             case let .textMention(id):
                 encoder.encodeInt32(3, forKey: "t")
                 encoder.encodeInt64(id.toInt64(), forKey: "peerId")
+            case let .textUrl(url):
+                encoder.encodeInt32(4, forKey: "t")
+                encoder.encodeString(url, forKey: "url")
         }
     }
     
@@ -86,6 +92,12 @@ private enum ChatTextInputStateTextAttributeType: PostboxCoding, Equatable {
                 }
             case let .textMention(id):
                 if case .textMention(id) = rhs {
+                    return true
+                } else {
+                    return false
+                }
+            case let .textUrl(url):
+                if case .textUrl(url) = rhs {
                     return true
                 } else {
                     return false
@@ -146,6 +158,8 @@ private struct ChatTextInputStateText: PostboxCoding, Equatable {
                     parsedAttributes.append(ChatTextInputStateTextAttribute(type: .monospace, range: range.location ..< (range.location + range.length)))
                 } else if key == ChatTextInputAttributes.textMention, let value = value as? ChatTextInputTextMentionAttribute {
                     parsedAttributes.append(ChatTextInputStateTextAttribute(type: .textMention(value.peerId), range: range.location ..< (range.location + range.length)))
+                } else if key == ChatTextInputAttributes.textUrl, let value = value as? ChatTextInputTextUrlAttribute {
+                    parsedAttributes.append(ChatTextInputStateTextAttribute(type: .textUrl(value.url), range: range.location ..< (range.location + range.length)))
                 }
             }
         })
@@ -178,6 +192,8 @@ private struct ChatTextInputStateText: PostboxCoding, Equatable {
                     result.addAttribute(ChatTextInputAttributes.monospace, value: true as NSNumber, range: NSRange(location: attribute.range.lowerBound, length: attribute.range.count))
                 case let .textMention(id):
                     result.addAttribute(ChatTextInputAttributes.textMention, value: ChatTextInputTextMentionAttribute(peerId: id), range: NSRange(location: attribute.range.lowerBound, length: attribute.range.count))
+                case let .textUrl(url):
+                    result.addAttribute(ChatTextInputAttributes.textUrl, value: ChatTextInputTextUrlAttribute(url: url), range: NSRange(location: attribute.range.lowerBound, length: attribute.range.count))
             }
         }
         return result
@@ -296,13 +312,14 @@ final class ChatEmbeddedInterfaceState: PeerChatListEmbeddedInterfaceState {
 }
 
 struct ChatInterfaceMessageActionsState: PostboxCoding, Equatable {
-    let closedButtonKeyboardMessageId: MessageId?
-    let processedSetupReplyMessageId: MessageId?
-    let closedPinnedMessageId: MessageId?
-    let closedPeerSpecificPackSetup: Bool
+    var closedButtonKeyboardMessageId: MessageId?
+    var processedSetupReplyMessageId: MessageId?
+    var closedPinnedMessageId: MessageId?
+    var closedPeerSpecificPackSetup: Bool = false
+    var dismissedAddContactPhoneNumber: String?
     
     var isEmpty: Bool {
-        return self.closedButtonKeyboardMessageId == nil && self.processedSetupReplyMessageId == nil && self.closedPinnedMessageId == nil && self.closedPeerSpecificPackSetup == false
+        return self.closedButtonKeyboardMessageId == nil && self.processedSetupReplyMessageId == nil && self.closedPinnedMessageId == nil && self.closedPeerSpecificPackSetup == false && self.dismissedAddContactPhoneNumber == nil
     }
     
     init() {
@@ -310,13 +327,15 @@ struct ChatInterfaceMessageActionsState: PostboxCoding, Equatable {
         self.processedSetupReplyMessageId = nil
         self.closedPinnedMessageId = nil
         self.closedPeerSpecificPackSetup = false
+        self.dismissedAddContactPhoneNumber = nil
     }
     
-    init(closedButtonKeyboardMessageId: MessageId?, processedSetupReplyMessageId: MessageId?, closedPinnedMessageId: MessageId?, closedPeerSpecificPackSetup: Bool) {
+    init(closedButtonKeyboardMessageId: MessageId?, processedSetupReplyMessageId: MessageId?, closedPinnedMessageId: MessageId?, closedPeerSpecificPackSetup: Bool, dismissedAddContactPhoneNumber: String?) {
         self.closedButtonKeyboardMessageId = closedButtonKeyboardMessageId
         self.processedSetupReplyMessageId = processedSetupReplyMessageId
         self.closedPinnedMessageId = closedPinnedMessageId
         self.closedPeerSpecificPackSetup = closedPeerSpecificPackSetup
+        self.dismissedAddContactPhoneNumber = dismissedAddContactPhoneNumber
     }
     
     init(decoder: PostboxDecoder) {
@@ -373,26 +392,12 @@ struct ChatInterfaceMessageActionsState: PostboxCoding, Equatable {
         }
         
         encoder.encodeInt32(self.closedPeerSpecificPackSetup ? 1 : 0, forKey: "cpss")
-    }
-    
-    static func ==(lhs: ChatInterfaceMessageActionsState, rhs: ChatInterfaceMessageActionsState) -> Bool {
-        return lhs.closedButtonKeyboardMessageId == rhs.closedButtonKeyboardMessageId && lhs.processedSetupReplyMessageId == rhs.processedSetupReplyMessageId && lhs.closedPinnedMessageId == rhs.closedPinnedMessageId && lhs.closedPeerSpecificPackSetup == rhs.closedPeerSpecificPackSetup
-    }
-    
-    func withUpdatedClosedButtonKeyboardMessageId(_ closedButtonKeyboardMessageId: MessageId?) -> ChatInterfaceMessageActionsState {
-        return ChatInterfaceMessageActionsState(closedButtonKeyboardMessageId: closedButtonKeyboardMessageId, processedSetupReplyMessageId: self.processedSetupReplyMessageId, closedPinnedMessageId: self.closedPinnedMessageId, closedPeerSpecificPackSetup: self.closedPeerSpecificPackSetup)
-    }
-    
-    func withUpdatedProcessedSetupReplyMessageId(_ processedSetupReplyMessageId: MessageId?) -> ChatInterfaceMessageActionsState {
-        return ChatInterfaceMessageActionsState(closedButtonKeyboardMessageId: self.closedButtonKeyboardMessageId, processedSetupReplyMessageId: processedSetupReplyMessageId, closedPinnedMessageId: self.closedPinnedMessageId, closedPeerSpecificPackSetup: self.closedPeerSpecificPackSetup)
-    }
-    
-    func withUpdatedClosedPinnedMessageId(_ closedPinnedMessageId: MessageId?) -> ChatInterfaceMessageActionsState {
-        return ChatInterfaceMessageActionsState(closedButtonKeyboardMessageId: self.closedButtonKeyboardMessageId, processedSetupReplyMessageId: self.processedSetupReplyMessageId, closedPinnedMessageId: closedPinnedMessageId, closedPeerSpecificPackSetup: self.closedPeerSpecificPackSetup)
-    }
-    
-    func withUpdatedClosedPeerSpecificPackSetup(_ closedPeerSpecificPackSetup: Bool) -> ChatInterfaceMessageActionsState {
-        return ChatInterfaceMessageActionsState(closedButtonKeyboardMessageId: self.closedButtonKeyboardMessageId, processedSetupReplyMessageId: self.processedSetupReplyMessageId, closedPinnedMessageId: self.closedPinnedMessageId, closedPeerSpecificPackSetup: closedPeerSpecificPackSetup)
+        
+        if let dismissedAddContactPhoneNumber = self.dismissedAddContactPhoneNumber {
+            encoder.encodeString(dismissedAddContactPhoneNumber, forKey: "dismissedAddContactPhoneNumber")
+        } else {
+            encoder.encodeNil(forKey: "dismissedAddContactPhoneNumber")
+        }
     }
 }
 
@@ -463,7 +468,7 @@ public final class ChatInterfaceState: SynchronizeableChatInterfaceState, Equata
         if self.composeInputState.inputText.length == 0 {
             return nil
         } else {
-            return SynchronizeableChatInputState(replyToMessageId: self.replyMessageId, text: self.composeInputState.inputText.string, timestamp: self.timestamp)
+            return SynchronizeableChatInputState(replyToMessageId: self.replyMessageId, text: self.composeInputState.inputText.string, entities: generateChatInputTextEntities(self.composeInputState.inputText), timestamp: self.timestamp)
         }
     }
     
@@ -472,7 +477,7 @@ public final class ChatInterfaceState: SynchronizeableChatInterfaceState, Equata
     }
     
     public func withUpdatedSynchronizeableInputState(_ state: SynchronizeableChatInputState?) -> SynchronizeableChatInterfaceState {
-        var result = self.withUpdatedComposeInputState(ChatTextInputState(inputText: NSAttributedString(string: state?.text ?? ""))).withUpdatedReplyMessageId(state?.replyToMessageId)
+        var result = self.withUpdatedComposeInputState(ChatTextInputState(inputText: chatInputStateStringWithAppliedEntities(state?.text ?? "", entities: state?.entities ?? []))).withUpdatedReplyMessageId(state?.replyToMessageId)
         if let timestamp = state?.timestamp {
             result = result.withUpdatedTimestamp(timestamp)
         }

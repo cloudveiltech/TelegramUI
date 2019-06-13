@@ -4,7 +4,7 @@ import Display
 import Postbox
 import TelegramCore
 
-private let avatarFont: UIFont = UIFont(name: ".SFCompactRounded-Semibold", size: 16.0)!
+private let avatarFont = UIFont(name: ".SFCompactRounded-Semibold", size: 16.0)!
 
 private protocol AbstractSwitchAccountItemNode {
     func updateLayout(maxWidth: CGFloat) -> (CGFloat, CGFloat, (CGFloat) -> Void)
@@ -135,12 +135,7 @@ private final class SwitchAccountItemNode: ASDisplayNode, AbstractSwitchAccountI
         self.badgeBackgroundNode.image = generateStretchableFilledCircleImage(diameter: 20.0, color: presentationData.theme.list.itemCheckColors.fillColor)
         self.badgeTitleNode = ImmediateTextNode()
         if unreadCount > 0 {
-            let countString: String
-            if unreadCount > 1000 {
-                countString = "\(unreadCount / 1000)K"
-            } else {
-                countString = "\(unreadCount)"
-            }
+            let countString = compactNumericCountString(Int(unreadCount), decimalSeparator: presentationData.dateTimeFormat.decimalSeparator)
             self.badgeTitleNode.attributedText = NSAttributedString(string: countString, font: Font.regular(14.0), textColor: presentationData.theme.list.itemCheckColors.foregroundColor)
         } else {
             self.badgeBackgroundNode.isHidden = true

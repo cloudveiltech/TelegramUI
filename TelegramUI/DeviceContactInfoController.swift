@@ -614,7 +614,8 @@ private func deviceContactInfoEntries(account: Account, presentationData: Presen
     if let birthday = contactData.birthdayDate {
         let dateText: String
         let calendar = Calendar(identifier: .gregorian)
-        let components = calendar.dateComponents(Set([.era, .year, .month, .day]), from: birthday)
+        var components = calendar.dateComponents(Set([.era, .year, .month, .day]), from: birthday)
+        components.hour = 12
         if let year = components.year, year > 1 {
             dateText = stringForDate(timestamp: Int32(birthday.timeIntervalSince1970), strings: presentationData.strings)
         } else {
@@ -1138,7 +1139,7 @@ private func addContactToExisting(context: AccountContext, parentController: Vie
         if let peer = peer {
             let dataSignal: Signal<(Peer?, DeviceContactStableId?), NoError>
             switch peer {
-                case let .peer(contact, _):
+                case let .peer(contact, _, _):
                     guard let contact = contact as? TelegramUser, let phoneNumber = contact.phone else {
                         return
                     }

@@ -96,9 +96,45 @@ private func chatMessageStickerDatas(postbox: Postbox, file: TelegramMediaFile, 
     }
 }
 
+private func chatMessageStickerThumbnailData(postbox: Postbox, file: TelegramMediaFile, synchronousLoad: Bool) -> Signal<Data?, NoError> {
+    let thumbnailResource = chatMessageStickerResource(file: file, small: true)
+    
+    let maybeFetched = postbox.mediaBox.cachedResourceRepresentation(thumbnailResource, representation: CachedStickerAJpegRepresentation(size: nil), complete: false, fetch: false, attemptSynchronously: synchronousLoad)
+    
+    return maybeFetched
+    |> take(1)
+    |> mapToSignal { maybeData in
+        if maybeData.complete {
+            let loadedData: Data? = try? Data(contentsOf: URL(fileURLWithPath: maybeData.path), options: [])
+            return .single(loadedData)
+        } else {
+            let thumbnailData = postbox.mediaBox.cachedResourceRepresentation(thumbnailResource, representation: CachedStickerAJpegRepresentation(size: nil), complete: false)
+            
+            return Signal { subscriber in
+                var fetchThumbnail = fetchedMediaResource(postbox: postbox, reference: stickerPackFileReference(file).resourceReference(thumbnailResource)).start()
+                
+                let disposable = (thumbnailData
+                |> map { thumbnailData -> Data? in
+                    return thumbnailData.complete ? try? Data(contentsOf: URL(fileURLWithPath: thumbnailData.path)) : nil
+                }).start(next: { next in
+                    subscriber.putNext(next)
+                }, error: { error in
+                    subscriber.putError(error)
+                }, completed: {
+                    subscriber.putCompletion()
+                })
+                
+                return ActionDisposable {
+                    fetchThumbnail.dispose()
+                    disposable.dispose()
+                }
+            }
+        }
+    }
+}
+
 private func chatMessageStickerPackThumbnailData(postbox: Postbox, representation: TelegramMediaImageRepresentation, synchronousLoad: Bool) -> Signal<Data?, NoError> {
     let resource = representation.resource
-    
     let maybeFetched = postbox.mediaBox.cachedResourceRepresentation(resource, representation: CachedStickerAJpegRepresentation(size: CGSize(width: 160.0, height: 160.0)), complete: false, fetch: false, attemptSynchronously: synchronousLoad)
     
     return maybeFetched
@@ -132,7 +168,21 @@ private func chatMessageStickerPackThumbnailData(postbox: Postbox, representatio
     }
 }
 
-func chatMessageAnimatedStickerDatas(postbox: Postbox, fileReference: FileMediaReference, synchronousLoad: Bool) -> Signal<(Data?, Bool), NoError> {
+func chatMessageAnimationData(postbox: Postbox, fileReference: FileMediaReference, synchronousLoad: Bool) -> Signal<MediaResourceData, NoError> {
+    let maybeFetched = postbox.mediaBox.cachedResourceRepresentation(fileReference.media.resource, representation: CachedAnimatedStickerRepresentation(), pathExtension: "mp4", complete: false, fetch: false, attemptSynchronously: synchronousLoad)
+    
+    return maybeFetched
+    |> take(1)
+    |> mapToSignal { maybeData in
+        if maybeData.complete {
+            return .single(maybeData)
+        } else {
+            return postbox.mediaBox.cachedResourceRepresentation(fileReference.media.resource, representation: CachedAnimatedStickerRepresentation(), pathExtension: "mp4", complete: false)
+        }
+    }
+}
+
+func chatMessageAnimatedStrickerBackingData(postbox: Postbox, fileReference: FileMediaReference, synchronousLoad: Bool) -> Signal<(Data?, Bool), NoError> {
     let resource = fileReference.media.resource
     
     let maybeFetched = postbox.mediaBox.resourceData(resource, option: .complete(waitUntilFetchStatus: false), attemptSynchronously: synchronousLoad)
@@ -145,8 +195,8 @@ func chatMessageAnimatedStickerDatas(postbox: Postbox, fileReference: FileMediaR
             return .single((loadedData, true))
         } else {
             let fullSizeData = postbox.mediaBox.resourceData(resource, option: .complete(waitUntilFetchStatus: false), attemptSynchronously: synchronousLoad)
-                |> map { next -> (Data?, Bool) in
-                    return (next.size == 0 ? nil : try? Data(contentsOf: URL(fileURLWithPath: next.path), options: []), next.complete)
+            |> map { next -> (Data?, Bool) in
+                return (next.size == 0 ? nil : try? Data(contentsOf: URL(fileURLWithPath: next.path), options: []), next.complete)
             }
             return fullSizeData
         }
@@ -217,8 +267,19 @@ func chatMessageLegacySticker(account: Account, file: TelegramMediaFile, small: 
     }
 }
 
-public func chatMessageSticker(account: Account, file: TelegramMediaFile, small: Bool, fetched: Bool = false, onlyFullSize: Bool = false, synchronousLoad: Bool = false) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
-    return chatMessageSticker(postbox: account.postbox, file: file, small: small, fetched: fetched, onlyFullSize: onlyFullSize, synchronousLoad: synchronousLoad)
+//CloudVeil start
+public func loadBlockedImage() -> Signal<(Data?, Data?, Bool), NoError> {
+    return Signal { subscriber in
+        subscriber.putNext((MainController.shared.blockedImageData, MainController.shared.blockedImageData, true))
+        return ActionDisposable {
+            
+        }
+    }
+}
+//CloudVeil end
+
+public func chatMessageSticker(account: Account, file: TelegramMediaFile, small: Bool, fetched: Bool = false, onlyFullSize: Bool = false, thumbnail: Bool = false, synchronousLoad: Bool = false) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+    return chatMessageSticker(postbox: account.postbox, file: file, small: small, fetched: fetched, onlyFullSize: onlyFullSize, thumbnail: thumbnail, synchronousLoad: synchronousLoad)
 }
 
 public func chatMessageStickerPackThumbnail(postbox: Postbox, representation: TelegramMediaImageRepresentation, synchronousLoad: Bool = false) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
@@ -264,26 +325,22 @@ public func chatMessageStickerPackThumbnail(postbox: Postbox, representation: Te
     }
 }
 
-//CloudVeil start
-public func loadBlockedImage() -> Signal<(Data?, Data?, Bool), NoError> {
-    return Signal { subscriber in
-        subscriber.putNext((MainController.shared.blockedImageData, MainController.shared.blockedImageData, true))
-        return ActionDisposable {
-            
-        }
-    }
-}
-//CloudVeil end
-
-public func chatMessageSticker(postbox: Postbox, file: TelegramMediaFile, small: Bool, fetched: Bool = false, onlyFullSize: Bool = false, synchronousLoad: Bool = false) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+public func chatMessageSticker(postbox: Postbox, file: TelegramMediaFile, small: Bool, fetched: Bool = false, onlyFullSize: Bool = false, thumbnail: Bool = false, synchronousLoad: Bool = false) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
     let signal: Signal<(Data?, Data?, Bool), NoError>
+    
     //CloudVeil start
     if MainController.shared.disableStickers {
         signal = loadBlockedImage()
+    } else if thumbnail {
+        signal = chatMessageStickerThumbnailData(postbox: postbox, file: file, synchronousLoad: synchronousLoad)
+        |> map { data -> (Data?, Data?, Bool) in
+            return (data, nil, false)
+        }
     } else {
         signal = chatMessageStickerDatas(postbox: postbox, file: file, small: small, fetched: fetched, onlyFullSize: onlyFullSize, synchronousLoad: synchronousLoad)
     }
-    //CloudVeil end
+     //CloudVeil end
+    
     return signal |> map { (thumbnailData, fullSizeData, fullSizeComplete) in
         return { arguments in
             let context = DrawingContext(size: arguments.drawingSize, scale: arguments.scale ?? 0.0, clear: arguments.emptyColor == nil)
@@ -297,7 +354,7 @@ public func chatMessageSticker(postbox: Postbox, file: TelegramMediaFile, small:
             if let fullSizeData = fullSizeData, fullSizeComplete {
                 if let image = imageFromAJpeg(data: fullSizeData) {
                     fullSizeImage = image
-                    //CloudVeil start
+                   //CloudVeil start
                 } else if MainController.shared.disableStickers {
                     fullSizeImage = (UIImage(data: fullSizeData), UIImage(data: fullSizeData)) as! (UIImage, UIImage)
                 }
@@ -308,8 +365,6 @@ public func chatMessageSticker(postbox: Postbox, file: TelegramMediaFile, small:
             if fullSizeImage == nil, let thumbnailData = thumbnailData {
                 if let image = imageFromAJpeg(data: thumbnailData) {
                     thumbnailImage = image
-                } else if MainController.shared.disableStickers {
-                    thumbnailImage = (UIImage(data: thumbnailData), UIImage(data: thumbnailData)) as! (UIImage, UIImage)
                 }
             }
             

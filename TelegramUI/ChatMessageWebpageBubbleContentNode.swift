@@ -142,6 +142,7 @@ final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContentNode {
                         return
                     }
                 }
+                
                 //CloudVeil start
                 let isYoutubeForbidden = self?.isYoutubeMessage(message: item.message) ?? false && MainController.SecurityStaticSettings.disableYoutubeVideoEmbedding
                 if isYoutubeForbidden  {
@@ -198,7 +199,6 @@ final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContentNode {
         return false
     }
     //CloudVeil end
-    
     
     required init?(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
@@ -398,7 +398,7 @@ final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContentNode {
         self.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.25)
     }
     
-    override func playMediaWithSound() -> (() -> Void, Bool, Bool, Bool, ASDisplayNode?)? {
+    override func playMediaWithSound() -> ((Double?) -> Void, Bool, Bool, Bool, ASDisplayNode?)? {
         return self.contentNode.playMediaWithSound()
     }
     

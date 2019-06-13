@@ -82,14 +82,14 @@ public enum PresentationFontSize: Int32 {
 
 public enum AutomaticThemeSwitchTimeBasedSetting: PostboxCoding, Equatable {
     case manual(fromSeconds: Int32, toSeconds: Int32)
-    case automatic(latitude: Double, longitude: Double, sunset: Int32, sunrise: Int32, localizedName: String)
+    case automatic(latitude: Double, longitude: Double, localizedName: String)
     
     public init(decoder: PostboxDecoder) {
         switch decoder.decodeInt32ForKey("_t", orElse: 0) {
             case 0:
                 self = .manual(fromSeconds: decoder.decodeInt32ForKey("fromSeconds", orElse: 0), toSeconds: decoder.decodeInt32ForKey("toSeconds", orElse: 0))
             case 1:
-                self = .automatic(latitude: decoder.decodeDoubleForKey("latitude", orElse: 0.0), longitude: decoder.decodeDoubleForKey("longitude", orElse: 0.0), sunset: decoder.decodeInt32ForKey("sunset", orElse: 0), sunrise: decoder.decodeInt32ForKey("sunrise", orElse: 0), localizedName: decoder.decodeStringForKey("localizedName", orElse: ""))
+                self = .automatic(latitude: decoder.decodeDoubleForKey("latitude", orElse: 0.0), longitude: decoder.decodeDoubleForKey("longitude", orElse: 0.0), localizedName: decoder.decodeStringForKey("localizedName", orElse: ""))
             default:
                 assertionFailure()
                 self = .manual(fromSeconds: 0, toSeconds: 1)
@@ -102,12 +102,10 @@ public enum AutomaticThemeSwitchTimeBasedSetting: PostboxCoding, Equatable {
                 encoder.encodeInt32(0, forKey: "_t")
                 encoder.encodeInt32(fromSeconds, forKey: "fromSeconds")
                 encoder.encodeInt32(toSeconds, forKey: "toSeconds")
-        case let .automatic(latitude, longitude, sunset, sunrise, localizedName):
+        case let .automatic(latitude, longitude, localizedName):
                 encoder.encodeInt32(1, forKey: "_t")
                 encoder.encodeDouble(latitude, forKey: "latitude")
                 encoder.encodeDouble(longitude, forKey: "longitude")
-                encoder.encodeInt32(sunset, forKey: "sunset")
-                encoder.encodeInt32(sunrise, forKey: "sunrise")
                 encoder.encodeString(localizedName, forKey: "localizedName")
         }
     }
@@ -173,6 +171,7 @@ public struct PresentationThemeSettings: PreferencesEntry {
     public var themeSpecificChatWallpapers: Dictionary<Int64, TelegramWallpaper>
     public var fontSize: PresentationFontSize
     public var automaticThemeSwitchSetting: AutomaticThemeSwitchSetting
+    public var largeEmoji: Bool
     public var disableAnimations: Bool
     
     private func wallpaperResources(_ wallpaper: TelegramWallpaper) -> [MediaResourceId] {
@@ -199,16 +198,17 @@ public struct PresentationThemeSettings: PreferencesEntry {
     }
     
     public static var defaultSettings: PresentationThemeSettings {
-        return PresentationThemeSettings(chatWallpaper: .builtin(WallpaperSettings()), theme: .builtin(.dayClassic), themeAccentColor: nil, themeSpecificChatWallpapers: [:], fontSize: .regular, automaticThemeSwitchSetting: AutomaticThemeSwitchSetting(trigger: .none, theme: .nightAccent), disableAnimations: true)
+        return PresentationThemeSettings(chatWallpaper: .builtin(WallpaperSettings()), theme: .builtin(.dayClassic), themeAccentColor: nil, themeSpecificChatWallpapers: [:], fontSize: .regular, automaticThemeSwitchSetting: AutomaticThemeSwitchSetting(trigger: .none, theme: .nightAccent), largeEmoji: true, disableAnimations: true)
     }
     
-    public init(chatWallpaper: TelegramWallpaper, theme: PresentationThemeReference, themeAccentColor: Int32?, themeSpecificChatWallpapers: Dictionary<Int64, TelegramWallpaper>, fontSize: PresentationFontSize, automaticThemeSwitchSetting: AutomaticThemeSwitchSetting, disableAnimations: Bool) {
+    public init(chatWallpaper: TelegramWallpaper, theme: PresentationThemeReference, themeAccentColor: Int32?, themeSpecificChatWallpapers: Dictionary<Int64, TelegramWallpaper>, fontSize: PresentationFontSize, automaticThemeSwitchSetting: AutomaticThemeSwitchSetting, largeEmoji: Bool, disableAnimations: Bool) {
         self.chatWallpaper = chatWallpaper
         self.theme = theme
         self.themeAccentColor = themeAccentColor
         self.themeSpecificChatWallpapers = themeSpecificChatWallpapers
         self.fontSize = fontSize
         self.automaticThemeSwitchSetting = automaticThemeSwitchSetting
+        self.largeEmoji = largeEmoji
         self.disableAnimations = disableAnimations
     }
     
@@ -223,6 +223,7 @@ public struct PresentationThemeSettings: PreferencesEntry {
         })
         self.fontSize = PresentationFontSize(rawValue: decoder.decodeInt32ForKey("f", orElse: PresentationFontSize.regular.rawValue)) ?? .regular
         self.automaticThemeSwitchSetting = (decoder.decodeObjectForKey("automaticThemeSwitchSetting", decoder: { AutomaticThemeSwitchSetting(decoder: $0) }) as? AutomaticThemeSwitchSetting) ?? AutomaticThemeSwitchSetting(trigger: .none, theme: .nightAccent)
+        self.largeEmoji = decoder.decodeBoolForKey("largeEmoji", orElse: true)
         self.disableAnimations = decoder.decodeBoolForKey("disableAnimations", orElse: true)
     }
     
@@ -239,6 +240,7 @@ public struct PresentationThemeSettings: PreferencesEntry {
         })
         encoder.encodeInt32(self.fontSize.rawValue, forKey: "f")
         encoder.encodeObject(self.automaticThemeSwitchSetting, forKey: "automaticThemeSwitchSetting")
+        encoder.encodeBool(self.largeEmoji, forKey: "largeEmoji")
         encoder.encodeBool(self.disableAnimations, forKey: "disableAnimations")
     }
     
@@ -251,7 +253,7 @@ public struct PresentationThemeSettings: PreferencesEntry {
     }
     
     public static func ==(lhs: PresentationThemeSettings, rhs: PresentationThemeSettings) -> Bool {
-        return lhs.chatWallpaper == rhs.chatWallpaper && lhs.theme == rhs.theme && lhs.themeAccentColor == rhs.themeAccentColor && lhs.themeSpecificChatWallpapers == rhs.themeSpecificChatWallpapers && lhs.fontSize == rhs.fontSize && lhs.automaticThemeSwitchSetting == rhs.automaticThemeSwitchSetting && lhs.disableAnimations == rhs.disableAnimations
+        return lhs.chatWallpaper == rhs.chatWallpaper && lhs.theme == rhs.theme && lhs.themeAccentColor == rhs.themeAccentColor && lhs.themeSpecificChatWallpapers == rhs.themeSpecificChatWallpapers && lhs.fontSize == rhs.fontSize && lhs.automaticThemeSwitchSetting == rhs.automaticThemeSwitchSetting && lhs.largeEmoji == rhs.largeEmoji && lhs.disableAnimations == rhs.disableAnimations
     }
 }
 

@@ -45,7 +45,7 @@ final class InstantPagePlayableVideoNode: ASDisplayNode, InstantPageNode {
             streamVideo = isMediaStreamable(media: file)
         }
         
-        self.videoNode = UniversalVideoNode(postbox: context.account.postbox, audioSession: context.sharedContext.mediaManager.audioSession, manager: context.sharedContext.mediaManager.universalVideoManager, decoration: GalleryVideoDecoration(), content: NativeVideoContent(id: .instantPage(webPage.webpageId, media.media.id!), fileReference: .webPage(webPage: WebpageReference(webPage), media: media.media as! TelegramMediaFile), imageReference: imageReference, streamVideo: streamVideo ? .earlierStart : .none, loopVideo: true, enableSound: false, fetchAutomatically: true, placeholderColor: theme.pageBackgroundColor), priority: .embedded, autoplay: true)
+        self.videoNode = UniversalVideoNode(postbox: context.account.postbox, audioSession: context.sharedContext.mediaManager.audioSession, manager: context.sharedContext.mediaManager.universalVideoManager, decoration: GalleryVideoDecoration(), content: NativeVideoContent(id: .instantPage(webPage.webpageId, media.media.id!), fileReference: .webPage(webPage: WebpageReference(webPage), media: media.media as! TelegramMediaFile), imageReference: imageReference, streamVideo: streamVideo ? .conservative : .none, loopVideo: true, enableSound: false, fetchAutomatically: true, placeholderColor: theme.pageBackgroundColor), priority: .embedded, autoplay: true)
         self.videoNode.isUserInteractionEnabled = false
         
         self.statusNode = RadialStatusNode(backgroundNodeColor: UIColor(white: 0.0, alpha: 0.6))
@@ -132,9 +132,8 @@ final class InstantPagePlayableVideoNode: ASDisplayNode, InstantPageNode {
     
     func transitionNode(media: InstantPageMedia) -> (ASDisplayNode, () -> (UIView?, UIView?))? {
         if media == self.media {
-            let videoNode = self.videoNode
-            return (self.videoNode, { [weak videoNode] in
-                return (videoNode?.view.snapshotContentTree(unhide: true), nil)
+            return (self, { [weak self] in
+                return (self?.view.snapshotContentTree(unhide: true), nil)
             })
         } else {
             return nil

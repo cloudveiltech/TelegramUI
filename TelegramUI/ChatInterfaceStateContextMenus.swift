@@ -38,8 +38,8 @@ func canReplyInChat(_ chatPresentationInterfaceState: ChatPresentationInterfaceS
             } else {
                 canReply = true
             }
-        case .group:
-            break
+        /*case .group:
+            break*/
     }
     return canReply
 }
@@ -223,8 +223,8 @@ func contextMenuForChatPresentationIntefaceState(chatPresentationInterfaceState:
                         canPin = true
                     }
                 }
-            case .group:
-                break
+            /*case .group:
+                break*/
         }
     } else {
         canReply = false
@@ -265,14 +265,23 @@ func contextMenuForChatPresentationIntefaceState(chatPresentationInterfaceState:
             let message = messages[0]
             
             var hasEditRights = false
+            var unlimitedInterval = false
             if message.id.peerId.namespace == Namespaces.Peer.SecretChat {
                 hasEditRights = false
             } else if let author = message.author, author.id == context.account.peerId {
                 hasEditRights = true
             } else if message.author?.id == message.id.peerId, let peer = message.peers[message.id.peerId] {
-                if let peer = peer as? TelegramChannel, case .broadcast = peer.info {
-                    if peer.hasPermission(.editAllMessages) {
-                        hasEditRights = true
+                if let peer = peer as? TelegramChannel {
+                    switch peer.info {
+                        case .broadcast:
+                            if peer.hasPermission(.editAllMessages) {
+                                hasEditRights = true
+                            }
+                        case .group:
+                            if peer.hasPermission(.pinMessages) {
+                                unlimitedInterval = true
+                                hasEditRights = true
+                            }
                     }
                 }
             }
@@ -318,7 +327,7 @@ func contextMenuForChatPresentationIntefaceState(chatPresentationInterfaceState:
                 }
                 
                 if !hasUneditableAttributes {
-                    if canPerformEditingActions(limits: limitsConfiguration, accountPeerId: context.account.peerId, message: message) {
+                    if canPerformEditingActions(limits: limitsConfiguration, accountPeerId: context.account.peerId, message: message, unlimitedInterval: unlimitedInterval) {
                         canEdit = true
                     }
                 }
@@ -386,7 +395,22 @@ func contextMenuForChatPresentationIntefaceState(chatPresentationInterfaceState:
                         }
                     }
                 } else {
-                    UIPasteboard.general.string = message.text
+                    var messageEntities: [MessageTextEntity]?
+                    for attribute in message.attributes {
+                        if let attribute = attribute as? TextEntitiesMessageAttribute {
+                            messageEntities = attribute.entities
+                            break
+                        }
+                    }
+                    storeMessageTextInPasteboard(message.text, entities: messageEntities)
+//                    if let messageEntities = messageEntities {
+//
+//                        let attributedString = chatInputStateStringWithAppliedEntities(message.text, entities: messageEntities)
+//                            //stringWithAppliedEntities(message.text, entities: messageEntities, baseColor: .black, linkColor: .black, baseFont: Font.regular(14.0), linkFont: Font.regular(14.0), boldFont: Font.bold(14.0), italicFont: Font.italic(14.0), fixedFont: Font.monospace(14.0))
+//                        UIPasteboard.general.set(attributedString: attributedString)
+//                    } else {
+//                        UIPasteboard.general.string = message.text
+//                    }
                 }
             })))
         }
@@ -456,9 +480,24 @@ func contextMenuForChatPresentationIntefaceState(chatPresentationInterfaceState:
             }
         }
         
-        if let message = messages.first, message.id.namespace == Namespaces.Message.Cloud, let channel = message.peers[message.id.peerId] as? TelegramChannel, let addressName = channel.addressName, !(message.media.first is TelegramMediaAction) {
+        if let message = messages.first, message.id.namespace == Namespaces.Message.Cloud, let channel = message.peers[message.id.peerId] as? TelegramChannel, !(message.media.first is TelegramMediaAction) {
             actions.append(.sheet(ChatMessageContextMenuSheetAction(color: .accent, title: chatPresentationInterfaceState.strings.Conversation_ContextMenuCopyLink, action: {
-                UIPasteboard.general.string = "https://t.me/\(addressName)/\(message.id.id)"
+                let _ = (exportMessageLink(account: context.account, peerId: message.id.peerId, messageId: message.id)
+                |> map { result -> String? in
+                    return result
+                }
+                |> deliverOnMainQueue).start(next: { link in
+                    if let link = link {
+                        UIPasteboard.general.string = link
+                        
+                        let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+                        if channel.addressName == nil {
+                            controllerInteraction.presentController(OverlayStatusController(theme: presentationData.theme, strings: presentationData.strings, type: .genericSuccess(presentationData.strings.Conversation_PrivateMessageLinkCopied, true)), nil)
+                        } else {
+                            controllerInteraction.presentController(OverlayStatusController(theme: presentationData.theme, strings: presentationData.strings, type: .genericSuccess(presentationData.strings.GroupInfo_InviteLink_CopyAlert_Success, false)), nil)
+                        }
+                    }
+                })
             })))
         }
         
@@ -578,8 +617,12 @@ struct ChatAvailableMessageActions {
     let banAuthor: Peer?
 }
 
-private func canPerformEditingActions(limits: LimitsConfiguration, accountPeerId: PeerId, message: Message) -> Bool {
+private func canPerformEditingActions(limits: LimitsConfiguration, accountPeerId: PeerId, message: Message, unlimitedInterval: Bool) -> Bool {
     if message.id.peerId == accountPeerId {
+        return true
+    }
+    
+    if unlimitedInterval {
         return true
     }
     
@@ -657,10 +700,15 @@ func chatAvailableMessageActions(postbox: Postbox, accountPeerId: PeerId, messag
                         }
                         if channel.hasPermission(.banMembers), case .group = channel.info {
                             if message.flags.contains(.Incoming) {
-                                if !hadBanPeerId {
+                                if message.author is TelegramUser {
+                                    if !hadBanPeerId {
+                                        hadBanPeerId = true
+                                        banPeer = message.author
+                                    } else if banPeer?.id != message.author?.id {
+                                        banPeer = nil
+                                    }
+                                } else {
                                     hadBanPeerId = true
-                                    banPeer = message.author
-                                } else if banPeer?.id != message.author?.id {
                                     banPeer = nil
                                 }
                             } else {

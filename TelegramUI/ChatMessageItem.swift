@@ -22,9 +22,9 @@ public enum ChatMessageItemContent: Sequence {
     var index: MessageIndex {
         switch self {
             case let .message(message, _, _, _):
-                return MessageIndex(message)
+                return message.index
             case let .group(messages):
-                return MessageIndex(messages[0].0)
+                return messages[0].0.index
         }
     }
     
@@ -91,6 +91,19 @@ private func mediaMergeableStyle(_ media: Media) -> ChatMessageMerge {
 private func messagesShouldBeMerged(accountPeerId: PeerId, _ lhs: Message, _ rhs: Message) -> ChatMessageMerge {
     var lhsEffectiveAuthor: Peer? = lhs.author
     var rhsEffectiveAuthor: Peer? = rhs.author
+    for attribute in lhs.attributes {
+        if let attribute = attribute as? SourceReferenceMessageAttribute {
+            lhsEffectiveAuthor = lhs.peers[attribute.messageId.peerId]
+            break
+        }
+    }
+    for attribute in rhs.attributes {
+        if let attribute = attribute as? SourceReferenceMessageAttribute {
+            rhsEffectiveAuthor = rhs.peers[attribute.messageId.peerId]
+            break
+        }
+    }
+    
     if lhs.id.peerId == accountPeerId {
         if let forwardInfo = lhs.forwardInfo {
             lhsEffectiveAuthor = forwardInfo.author
@@ -102,7 +115,12 @@ private func messagesShouldBeMerged(accountPeerId: PeerId, _ lhs: Message, _ rhs
         }
     }
     
-    if abs(lhs.timestamp - rhs.timestamp) < Int32(10 * 60) && lhsEffectiveAuthor?.id == rhsEffectiveAuthor?.id {
+    var sameAuthor = false
+    if lhsEffectiveAuthor?.id == rhsEffectiveAuthor?.id {
+        sameAuthor = true
+    }
+    
+    if abs(lhs.timestamp - rhs.timestamp) < Int32(10 * 60) && sameAuthor {
         var upperStyle: Int32 = ChatMessageMerge.fullyMerged.rawValue
         var lowerStyle: Int32 = ChatMessageMerge.fullyMerged.rawValue
         for media in lhs.media {
@@ -277,11 +295,17 @@ public final class ChatMessageItem: ListViewItem, CustomStringConvertible {
                     displayAuthorInfo = incoming && effectiveAuthor != nil
                 } else {
                     effectiveAuthor = content.firstMessage.author
+                    for attribute in content.firstMessage.attributes {
+                        if let attribute = attribute as? SourceReferenceMessageAttribute {
+                            effectiveAuthor = content.firstMessage.peers[attribute.messageId.peerId]
+                            break
+                        }
+                    }
                     displayAuthorInfo = incoming && peerId.isGroupOrChannel && effectiveAuthor != nil
                 }
-            case .group:
+            /*case .group:
                 effectiveAuthor = content.firstMessage.author
-                displayAuthorInfo = incoming && effectiveAuthor != nil
+                displayAuthorInfo = incoming && effectiveAuthor != nil*/
         }
         
         self.effectiveAuthorId = effectiveAuthor?.id
@@ -325,9 +349,9 @@ public final class ChatMessageItem: ListViewItem, CustomStringConvertible {
     public func nodeConfiguredForParams(async: @escaping (@escaping () -> Void) -> Void, params: ListViewItemLayoutParams, synchronousLoads: Bool, previousItem: ListViewItem?, nextItem: ListViewItem?, completion: @escaping (ListViewItemNode, @escaping () -> (Signal<Void, NoError>?, (ListViewItemApply) -> Void)) -> Void) {
         var viewClassName: AnyClass = ChatMessageBubbleItemNode.self
         
-        loop: for media in message.media {
+        loop: for media in self.message.media {
             if let telegramFile = media as? TelegramMediaFile {
-                if GlobalExperimentalSettings.animatedStickers && telegramFile.fileName == "animation.json" {
+                if let fileName = telegramFile.fileName, fileName.hasSuffix(".tgs"), let size = telegramFile.size, size > 0 && size < 64 * 1024 {
                     viewClassName = ChatMessageAnimatedStickerItemNode.self
                     break loop
                 }
@@ -350,6 +374,10 @@ public final class ChatMessageItem: ListViewItem, CustomStringConvertible {
             } else if let _ = media as? TelegramMediaExpiredContent {
                 viewClassName = ChatMessageBubbleItemNode.self
             }
+        }
+        
+        if viewClassName == ChatMessageBubbleItemNode.self && self.presentationData.largeEmoji && self.message.elligibleForLargeEmoji && messageTextIsElligibleForLargeEmoji(message.text) {
+            viewClassName = ChatMessageStickerItemNode.self
         }
         
         let configure = {
@@ -440,6 +468,4 @@ public final class ChatMessageItem: ListViewItem, CustomStringConvertible {
     public var description: String {
         return "(ChatMessageItem id: \(self.message.id), text: \"\(self.message.text)\")"
     }
-    
-    
 }
